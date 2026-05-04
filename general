@@ -187,246 +187,391 @@ local HoverTime = 0.3
 local Notifications = NSUI.Notifications
 
 -- ── NSUI Global Search & Pin System ──────────────────────────────────────────
-local LastActivePage       = nil          -- page before user opened global search
-local PinnedPanelOpen      = false
+local LastActivePage       = nil
 local NSUIPinnedFile       = NSUIFolder .. "/Pinned.NSUI"
-local TabNavRegistry       = {}           -- [tabName] = { page=ScrollingFrame, navigate=func }
-local PinnedEntries        = {}           -- list of active pinned-entry frames in the panel
-local SearchResultsPage    = nil          -- created lazily on first search
+local TabNavRegistry       = {}   -- [tabName] = { page, navigate }
 local GlobalSearchActive   = false
+local SearchResultsPage    = nil
 
--- Pinned-panel panel (created immediately so pin-buttons can reference it)
-local PinnedPanel = Instance.new("Frame")
-PinnedPanel.Name            = "NSUIPinnedPanel"
-PinnedPanel.Size            = UDim2.new(0, 180, 0, 36) -- grows dynamically
-PinnedPanel.AnchorPoint     = Vector2.new(0, 0.5)
-PinnedPanel.Position        = UDim2.new(0, -152, 0.5, 0)  -- mostly off-screen
-PinnedPanel.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
-PinnedPanel.BackgroundTransparency = 0.08
-PinnedPanel.BorderSizePixel = 0
-PinnedPanel.ZIndex          = 90
-PinnedPanel.Visible         = false
-PinnedPanel.Parent          = NSUI
+-- Active pinned windows: key = "tabName|sectionName" → Frame
+local ActivePinnedWindows  = {}
 
-local PinnedPanelCorner = Instance.new("UICorner")
-PinnedPanelCorner.CornerRadius = UDim.new(0, 8)
-PinnedPanelCorner.Parent = PinnedPanel
-
-local PinnedPanelStroke = Instance.new("UIStroke")
-PinnedPanelStroke.Color         = Color3.fromRGB(60, 60, 60)
-PinnedPanelStroke.Thickness     = 1
-PinnedPanelStroke.Transparency  = 0
-PinnedPanelStroke.Parent        = PinnedPanel
-
--- Arrow / toggle tab on right edge
-local PinnedToggle = Instance.new("TextButton")
-PinnedToggle.Name               = "PinnedToggle"
-PinnedToggle.Size               = UDim2.new(0, 22, 0, 44)
-PinnedToggle.AnchorPoint        = Vector2.new(0, 0.5)
-PinnedToggle.Position           = UDim2.new(1, 0, 0.5, 0)
-PinnedToggle.BackgroundColor3   = Color3.fromRGB(38, 38, 38)
-PinnedToggle.BorderSizePixel    = 0
-PinnedToggle.Text               = "▶"
-PinnedToggle.TextColor3         = Color3.fromRGB(200, 200, 200)
-PinnedToggle.Font               = Enum.Font.GothamBold
-PinnedToggle.TextSize           = 11
-PinnedToggle.ZIndex             = 95
-PinnedToggle.Parent             = PinnedPanel
-
-local PinnedToggleCorner = Instance.new("UICorner")
-PinnedToggleCorner.CornerRadius = UDim.new(0, 6)
-PinnedToggleCorner.Parent = PinnedToggle
-
--- Header label inside panel
-local PinnedHeader = Instance.new("TextLabel")
-PinnedHeader.Name           = "PinnedHeader"
-PinnedHeader.Size           = UDim2.new(1, -8, 0, 28)
-PinnedHeader.Position       = UDim2.new(0, 6, 0, 4)
-PinnedHeader.BackgroundTransparency = 1
-PinnedHeader.Text           = "📌  Pinned"
-PinnedHeader.TextColor3     = Color3.fromRGB(180, 180, 180)
-PinnedHeader.Font           = Enum.Font.GothamBold
-PinnedHeader.TextSize       = 12
-PinnedHeader.TextXAlignment = Enum.TextXAlignment.Left
-PinnedHeader.ZIndex         = 91
-PinnedHeader.Parent         = PinnedPanel
-
--- Scroll list inside panel
-local PinnedList = Instance.new("ScrollingFrame")
-PinnedList.Name                     = "PinnedList"
-PinnedList.Size                     = UDim2.new(1, -6, 1, -36)
-PinnedList.Position                 = UDim2.new(0, 3, 0, 34)
-PinnedList.BackgroundTransparency   = 1
-PinnedList.BorderSizePixel          = 0
-PinnedList.ScrollBarThickness       = 2
-PinnedList.ScrollBarImageColor3     = Color3.fromRGB(80, 80, 80)
-PinnedList.CanvasSize               = UDim2.new(0, 0, 0, 0)
-PinnedList.AutomaticCanvasSize      = Enum.AutomaticSize.Y
-PinnedList.ZIndex                   = 91
-PinnedList.Parent                   = PinnedPanel
-
-local PinnedListLayout = Instance.new("UIListLayout")
-PinnedListLayout.Padding            = UDim.new(0, 3)
-PinnedListLayout.FillDirection      = Enum.FillDirection.Vertical
-PinnedListLayout.SortOrder          = Enum.SortOrder.LayoutOrder
-PinnedListLayout.Parent             = PinnedList
-
--- Resize panel height when items change
-local function RefreshPinnedPanelSize()
-    local count = 0
-    for _, c in ipairs(PinnedList:GetChildren()) do
-        if c:IsA("Frame") then count = count + 1 end
-    end
-    local newH = math.clamp(36 + count * 38 + 4, 36, 340)
-    TweenService:Create(PinnedPanel, TweenInfo.new(0.35, Enum.EasingStyle.Quint), {Size = UDim2.new(0, 180, 0, newH)}):Play()
-    -- if no pins left, hide the whole panel/toggle
-    if count == 0 then
-        PinnedPanel.Visible = false
-    else
-        PinnedPanel.Visible = true
-    end
-end
-
--- Toggle panel open/close
-local function TogglePinnedPanel()
-    PinnedPanelOpen = not PinnedPanelOpen
-    if PinnedPanelOpen then
-        TweenService:Create(PinnedPanel, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {Position = UDim2.new(0, 0, 0.5, 0)}):Play()
-        PinnedToggle.Text = "◀"
-    else
-        TweenService:Create(PinnedPanel, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {Position = UDim2.new(0, -152, 0.5, 0)}):Play()
-        PinnedToggle.Text = "▶"
-    end
-end
-PinnedToggle.MouseButton1Click:Connect(TogglePinnedPanel)
-
--- Helper: save pinned data to file
+-- Save all open pinned windows to file
 local function SavePinnedFile()
     pcall(function()
         if not isfolder then return end
         if not isfolder(NSUIFolder) then makefolder(NSUIFolder) end
         local tbl = {}
-        for _, child in ipairs(PinnedList:GetChildren()) do
-            if child:IsA("Frame") and child:FindFirstChild("_PinMeta_") then
-                local m = HttpService:JSONDecode(child._PinMeta_.Value)
-                table.insert(tbl, m)
+        for key, win in pairs(ActivePinnedWindows) do
+            if win and win.Parent then
+                tbl[#tbl + 1] = {
+                    key     = key,
+                    tab     = win:GetAttribute("_PinTab"),
+                    section = win:GetAttribute("_PinSection"),
+                    x       = win.Position.X.Offset,
+                    y       = win.Position.Y.Offset,
+                }
             end
         end
         writefile(NSUIPinnedFile, HttpService:JSONEncode(tbl))
     end)
 end
 
--- Add a pinned entry to the panel
-local function AddPinnedEntry(tabName, sectionTitle, tabPageRef, sectionFrameRef)
-    -- deduplicate
-    local key = tabName .. "|" .. sectionTitle
-    for _, child in ipairs(PinnedList:GetChildren()) do
-        if child:IsA("Frame") and child.Name == key then return end
-    end
+-- Build a row inside a pinned window for one element from the section holder
+local function BuildPinnedRow(element, winContent, zBase)
+    if not element:IsA("Frame") then return end
+    if element.Name == "Placeholder" or element.Name == "SectionSpacing" then return end
 
-    local Entry = Instance.new("Frame")
-    Entry.Name              = key
-    Entry.Size              = UDim2.new(1, 0, 0, 34)
-    Entry.BackgroundColor3  = Color3.fromRGB(35, 35, 35)
-    Entry.BackgroundTransparency = 0.2
-    Entry.BorderSizePixel   = 0
-    Entry.ZIndex            = 92
-    Entry.LayoutOrder       = #PinnedList:GetChildren()
-    Entry.Parent            = PinnedList
+    local Row = Instance.new("Frame")
+    Row.Name              = element.Name
+    Row.Size              = UDim2.new(1, 0, 0, 34)
+    Row.BackgroundColor3  = Color3.fromRGB(32, 32, 32)
+    Row.BackgroundTransparency = 0
+    Row.BorderSizePixel   = 0
+    Row.ZIndex            = zBase + 1
+    Row.ClipsDescendants  = true
+    Row.Parent            = winContent
 
-    local EntryCorner = Instance.new("UICorner")
-    EntryCorner.CornerRadius = UDim.new(0, 5)
-    EntryCorner.Parent = Entry
+    local rc = Instance.new("UICorner")
+    rc.CornerRadius = UDim.new(0, 5)
+    rc.Parent = Row
 
-    -- Meta value for saving
-    local MetaVal = Instance.new("StringValue")
-    MetaVal.Name  = "_PinMeta_"
-    MetaVal.Value = HttpService:JSONEncode({tab = tabName, section = sectionTitle})
-    MetaVal.Parent = Entry
+    local rs = Instance.new("UIStroke")
+    rs.Color       = Color3.fromRGB(55, 55, 55)
+    rs.Thickness   = 1
+    rs.Parent      = Row
 
-    -- Tab badge (small top label)
-    local TabBadge = Instance.new("TextLabel")
-    TabBadge.Size               = UDim2.new(1, -28, 0, 13)
-    TabBadge.Position           = UDim2.new(0, 6, 0, 3)
-    TabBadge.BackgroundTransparency = 1
-    TabBadge.Text               = tabName
-    TabBadge.TextColor3         = Color3.fromRGB(120, 120, 120)
-    TabBadge.Font               = Enum.Font.Gotham
-    TabBadge.TextSize           = 9
-    TabBadge.TextXAlignment     = Enum.TextXAlignment.Left
-    TabBadge.TextTruncate       = Enum.TextTruncate.AtEnd
-    TabBadge.ZIndex             = 93
-    TabBadge.Parent             = Entry
-
-    -- Section name button
-    local NavBtn = Instance.new("TextButton")
-    NavBtn.Size             = UDim2.new(1, -28, 0, 16)
-    NavBtn.Position         = UDim2.new(0, 6, 0, 14)
-    NavBtn.BackgroundTransparency = 1
-    NavBtn.Text             = sectionTitle
-    NavBtn.TextColor3       = Color3.fromRGB(220, 220, 220)
-    NavBtn.Font             = Enum.Font.GothamBold
-    NavBtn.TextSize         = 11
-    NavBtn.TextXAlignment   = Enum.TextXAlignment.Left
-    NavBtn.TextTruncate     = Enum.TextTruncate.AtEnd
-    NavBtn.ZIndex           = 93
-    NavBtn.Parent           = Entry
-
-    -- Unpin X button
-    local UnpinBtn = Instance.new("TextButton")
-    UnpinBtn.Size           = UDim2.new(0, 18, 0, 18)
-    UnpinBtn.AnchorPoint    = Vector2.new(1, 0.5)
-    UnpinBtn.Position       = UDim2.new(1, -4, 0.5, 0)
-    UnpinBtn.BackgroundTransparency = 1
-    UnpinBtn.Text           = "✕"
-    UnpinBtn.TextColor3     = Color3.fromRGB(130, 50, 50)
-    UnpinBtn.Font           = Enum.Font.GothamBold
-    UnpinBtn.TextSize       = 10
-    UnpinBtn.ZIndex         = 94
-    UnpinBtn.Parent         = Entry
-
-    -- Navigate on click
-    NavBtn.MouseButton1Click:Connect(function()
-        -- Close panel while navigating for clean UX
-        pcall(function()
-            if TabNavRegistry[tabName] then
-                TabNavRegistry[tabName].navigate()
-            end
-            -- Scroll section into view
-            if tabPageRef and sectionFrameRef then
-                task.wait(0.2)
-                pcall(function()
-                    local sectionY = sectionFrameRef.AbsolutePosition.Y - tabPageRef.AbsolutePosition.Y + tabPageRef.CanvasPosition.Y
-                    TweenService:Create(tabPageRef, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {CanvasPosition = Vector2.new(0, math.max(0, sectionY - 20))}):Play()
-                end)
-            end
-        end)
+    -- Element label (use Title.Text if available, else Name)
+    local labelText = element.Name
+    pcall(function()
+        if element:FindFirstChild("Title") and element.Title.Text ~= "" then
+            labelText = element.Title.Text
+        end
     end)
 
-    -- Unpin
-    UnpinBtn.MouseButton1Click:Connect(function()
-        -- reset pin button in original section
+    local Lbl = Instance.new("TextLabel")
+    Lbl.Size               = UDim2.new(1, -70, 1, 0)
+    Lbl.Position           = UDim2.new(0, 10, 0, 0)
+    Lbl.BackgroundTransparency = 1
+    Lbl.Text               = labelText
+    Lbl.TextColor3         = Color3.fromRGB(210, 210, 210)
+    Lbl.Font               = Enum.Font.Gotham
+    Lbl.TextSize           = 12
+    Lbl.TextXAlignment     = Enum.TextXAlignment.Left
+    Lbl.TextTruncate       = Enum.TextTruncate.AtEnd
+    Lbl.ZIndex             = zBase + 2
+    Lbl.Parent             = Row
+
+    -- Right-side indicator: try to mirror ElementIndicator / toggle state
+    local RightLbl = Instance.new("TextLabel")
+    RightLbl.Size               = UDim2.new(0, 58, 1, 0)
+    RightLbl.AnchorPoint        = Vector2.new(1, 0)
+    RightLbl.Position           = UDim2.new(1, -4, 0, 0)
+    RightLbl.BackgroundTransparency = 1
+    RightLbl.Text               = ""
+    RightLbl.TextColor3         = Color3.fromRGB(130, 130, 130)
+    RightLbl.Font               = Enum.Font.Gotham
+    RightLbl.TextSize           = 11
+    RightLbl.TextXAlignment     = Enum.TextXAlignment.Right
+    RightLbl.TextTruncate       = Enum.TextTruncate.AtEnd
+    RightLbl.ZIndex             = zBase + 2
+    RightLbl.Parent             = Row
+
+    -- Mirror ElementIndicator text (button label / keybind etc)
+    pcall(function()
+        if element:FindFirstChild("ElementIndicator") then
+            RightLbl.Text = element.ElementIndicator.Text
+            element.ElementIndicator:GetPropertyChangedSignal("Text"):Connect(function()
+                RightLbl.Text = element.ElementIndicator.Text
+            end)
+        end
+    end)
+
+    -- Mirror toggle visual (small circle indicator)
+    local ToggleDot = nil
+    pcall(function()
+        if element:FindFirstChild("Toggle") and element.Toggle:FindFirstChild("Indicator") then
+            ToggleDot = Instance.new("Frame")
+            ToggleDot.Size             = UDim2.new(0, 10, 0, 10)
+            ToggleDot.AnchorPoint      = Vector2.new(1, 0.5)
+            ToggleDot.Position         = UDim2.new(1, -8, 0.5, 0)
+            ToggleDot.BackgroundColor3 = element.Toggle.Indicator.BackgroundColor3
+            ToggleDot.BorderSizePixel  = 0
+            ToggleDot.ZIndex           = zBase + 3
+            ToggleDot.Parent           = Row
+
+            local dc = Instance.new("UICorner")
+            dc.CornerRadius = UDim.new(1, 0)
+            dc.Parent = ToggleDot
+
+            element.Toggle.Indicator:GetPropertyChangedSignal("BackgroundColor3"):Connect(function()
+                ToggleDot.BackgroundColor3 = element.Toggle.Indicator.BackgroundColor3
+            end)
+        end
+    end)
+
+    -- Click proxy → fire original Interact
+    local Btn = Instance.new("TextButton")
+    Btn.Size               = UDim2.new(1, 0, 1, 0)
+    Btn.BackgroundTransparency = 1
+    Btn.Text               = ""
+    Btn.ZIndex             = zBase + 4
+    Btn.Parent             = Row
+
+    Btn.MouseEnter:Connect(function()
+        TweenService:Create(Row, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {BackgroundColor3 = Color3.fromRGB(44, 44, 44)}):Play()
+    end)
+    Btn.MouseLeave:Connect(function()
+        TweenService:Create(Row, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {BackgroundColor3 = Color3.fromRGB(32, 32, 32)}):Play()
+    end)
+    Btn.MouseButton1Click:Connect(function()
         pcall(function()
-            if sectionFrameRef and sectionFrameRef:FindFirstChild("NSUIPinButton") then
-                sectionFrameRef.NSUIPinButton.Text         = "⊙"
-                sectionFrameRef.NSUIPinButton.TextColor3   = Color3.fromRGB(110, 110, 110)
+            if element:FindFirstChild("Interact") then
+                element.Interact:Activate()
             end
         end)
-        Entry:Destroy()
-        RefreshPinnedPanelSize()
+        -- Brief press flash (darker → restore)
+        TweenService:Create(Row, TweenInfo.new(0.1, Enum.EasingStyle.Quint), {BackgroundColor3 = Color3.fromRGB(24, 24, 24)}):Play()
+        task.wait(0.12)
+        TweenService:Create(Row, TweenInfo.new(0.25, Enum.EasingStyle.Quint), {BackgroundColor3 = Color3.fromRGB(32, 32, 32)}):Play()
+    end)
+end
+
+-- Create a draggable floating window for a pinned section
+local function CreatePinnedWindow(tabName, sectionName, sectionFrameRef, tabPageRef, startX, startY)
+    local key = tabName .. "|" .. sectionName
+    -- Deduplicate
+    if ActivePinnedWindows[key] and ActivePinnedWindows[key].Parent then return end
+
+    local WIN_W = 220
+    local WIN_TITLE_H = 32
+
+    -- Count holder children to size window height
+    local childCount = 0
+    if sectionFrameRef and sectionFrameRef:FindFirstChild("Holder") then
+        for _, c in ipairs(sectionFrameRef.Holder:GetChildren()) do
+            if c:IsA("Frame") and c.Name ~= "Placeholder" and c.Name ~= "SectionSpacing" then
+                childCount = childCount + 1
+            end
+        end
+    end
+    local WIN_H = WIN_TITLE_H + math.clamp(childCount * 38 + 6, 38, 300)
+
+    local posX = startX or 30
+    local posY = startY or 120
+
+    local Win = Instance.new("Frame")
+    Win.Name                  = "NSUIPinWin_" .. key
+    Win.Size                  = UDim2.new(0, WIN_W, 0, WIN_H)
+    Win.Position              = UDim2.new(0, posX, 0, posY)
+    Win.BackgroundColor3      = Color3.fromRGB(22, 22, 22)
+    Win.BackgroundTransparency = 0.04
+    Win.BorderSizePixel       = 0
+    Win.ZIndex                = 80
+    Win.Active                = true
+    Win.Parent                = NSUI
+
+    Win:SetAttribute("_PinTab",     tabName)
+    Win:SetAttribute("_PinSection", sectionName)
+
+    local WinCorner = Instance.new("UICorner")
+    WinCorner.CornerRadius = UDim.new(0, 8)
+    WinCorner.Parent = Win
+
+    local WinStroke = Instance.new("UIStroke")
+    WinStroke.Color        = Color3.fromRGB(58, 58, 58)
+    WinStroke.Thickness    = 1
+    WinStroke.Parent       = Win
+
+    local WinShadow = Instance.new("ImageLabel")
+    WinShadow.Name          = "Shadow"
+    WinShadow.AnchorPoint   = Vector2.new(0.5, 0.5)
+    WinShadow.Position      = UDim2.new(0.5, 0, 0.5, 4)
+    WinShadow.Size          = UDim2.new(1, 24, 1, 24)
+    WinShadow.BackgroundTransparency = 1
+    WinShadow.Image         = "rbxassetid://5554236805"
+    WinShadow.ImageColor3   = Color3.fromRGB(0, 0, 0)
+    WinShadow.ImageTransparency = 0.5
+    WinShadow.ScaleType     = Enum.ScaleType.Slice
+    WinShadow.SliceCenter   = Rect.new(23, 23, 277, 277)
+    WinShadow.ZIndex        = 79
+    WinShadow.Parent        = Win
+
+    -- ── Titlebar ──────────────────────────────────────────────────────
+    local Titlebar = Instance.new("Frame")
+    Titlebar.Name             = "Titlebar"
+    Titlebar.Size             = UDim2.new(1, 0, 0, WIN_TITLE_H)
+    Titlebar.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
+    Titlebar.BackgroundTransparency = 0
+    Titlebar.BorderSizePixel  = 0
+    Titlebar.ZIndex           = 81
+    Titlebar.Parent           = Win
+
+    local TitlebarCorner = Instance.new("UICorner")
+    TitlebarCorner.CornerRadius = UDim.new(0, 8)
+    TitlebarCorner.Parent = Titlebar
+
+    -- Cover bottom corners of titlebar so it merges with content
+    local TitlebarRepair = Instance.new("Frame")
+    TitlebarRepair.Size             = UDim2.new(1, 0, 0, 8)
+    TitlebarRepair.AnchorPoint      = Vector2.new(0, 1)
+    TitlebarRepair.Position         = UDim2.new(0, 0, 1, 0)
+    TitlebarRepair.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
+    TitlebarRepair.BorderSizePixel  = 0
+    TitlebarRepair.ZIndex           = 82
+    TitlebarRepair.Parent           = Titlebar
+
+    -- Pin icon in titlebar
+    local PinIcon = Instance.new("ImageLabel")
+    PinIcon.Size             = UDim2.new(0, 14, 0, 14)
+    PinIcon.AnchorPoint      = Vector2.new(0, 0.5)
+    PinIcon.Position         = UDim2.new(0, 8, 0.5, 0)
+    PinIcon.BackgroundTransparency = 1
+    PinIcon.Image            = "rbxassetid://10734886004"
+    PinIcon.ImageColor3      = Color3.fromRGB(160, 160, 160)
+    PinIcon.ZIndex           = 83
+    PinIcon.Parent           = Titlebar
+
+    -- Section title
+    local WinTitle = Instance.new("TextLabel")
+    WinTitle.Size             = UDim2.new(1, -56, 1, 0)
+    WinTitle.Position         = UDim2.new(0, 26, 0, 0)
+    WinTitle.BackgroundTransparency = 1
+    WinTitle.Text             = sectionName
+    WinTitle.TextColor3       = Color3.fromRGB(210, 210, 210)
+    WinTitle.Font             = Enum.Font.GothamBold
+    WinTitle.TextSize         = 12
+    WinTitle.TextXAlignment   = Enum.TextXAlignment.Left
+    WinTitle.TextTruncate     = Enum.TextTruncate.AtEnd
+    WinTitle.ZIndex           = 83
+    WinTitle.Parent           = Titlebar
+
+    -- Tab breadcrumb under title
+    local TabCrumb = Instance.new("TextLabel")
+    TabCrumb.Size             = UDim2.new(1, -56, 0, 10)
+    TabCrumb.Position         = UDim2.new(0, 26, 0.5, 2)
+    TabCrumb.BackgroundTransparency = 1
+    TabCrumb.Text             = tabName
+    TabCrumb.TextColor3       = Color3.fromRGB(100, 100, 100)
+    TabCrumb.Font             = Enum.Font.Gotham
+    TabCrumb.TextSize         = 9
+    TabCrumb.TextXAlignment   = Enum.TextXAlignment.Left
+    TabCrumb.TextTruncate     = Enum.TextTruncate.AtEnd
+    TabCrumb.ZIndex           = 83
+    TabCrumb.Parent           = Titlebar
+
+    -- Close/unpin button (X)
+    local CloseBtn = Instance.new("TextButton")
+    CloseBtn.Size             = UDim2.new(0, 22, 0, 22)
+    CloseBtn.AnchorPoint      = Vector2.new(1, 0.5)
+    CloseBtn.Position         = UDim2.new(1, -5, 0.5, 0)
+    CloseBtn.BackgroundTransparency = 1
+    CloseBtn.Text             = "×"
+    CloseBtn.TextColor3       = Color3.fromRGB(130, 130, 130)
+    CloseBtn.Font             = Enum.Font.GothamBold
+    CloseBtn.TextSize         = 16
+    CloseBtn.ZIndex           = 84
+    CloseBtn.Parent           = Titlebar
+
+    CloseBtn.MouseEnter:Connect(function()
+        TweenService:Create(CloseBtn, TweenInfo.new(0.2), {TextColor3 = Color3.fromRGB(200, 200, 200)}):Play()
+    end)
+    CloseBtn.MouseLeave:Connect(function()
+        TweenService:Create(CloseBtn, TweenInfo.new(0.2), {TextColor3 = Color3.fromRGB(130, 130, 130)}):Play()
+    end)
+
+    -- Drag handle on titlebar
+    local DragArea = Instance.new("TextButton")
+    DragArea.Size              = UDim2.new(1, -28, 1, 0)
+    DragArea.BackgroundTransparency = 1
+    DragArea.Text              = ""
+    DragArea.ZIndex            = 83
+    DragArea.Parent            = Titlebar
+
+    -- Drag logic (same pattern as main window)
+    do
+        local dragging, dragStart, startPos = false, nil, nil
+        DragArea.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                dragging  = true
+                dragStart = input.Position
+                startPos  = Win.Position
+            end
+        end)
+        UserInputService.InputChanged:Connect(function(input)
+            if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+                local delta = input.Position - dragStart
+                Win.Position = UDim2.new(
+                    startPos.X.Scale, startPos.X.Offset + delta.X,
+                    startPos.Y.Scale, startPos.Y.Offset + delta.Y
+                )
+            end
+        end)
+        UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                if dragging then
+                    dragging = false
+                    SavePinnedFile()
+                end
+            end
+        end)
+    end
+
+    -- ── Content scroll area ───────────────────────────────────────────
+    local Content = Instance.new("ScrollingFrame")
+    Content.Name                    = "PinWinContent"
+    Content.Size                    = UDim2.new(1, -6, 1, -(WIN_TITLE_H + 4))
+    Content.Position                = UDim2.new(0, 3, 0, WIN_TITLE_H + 2)
+    Content.BackgroundTransparency  = 1
+    Content.BorderSizePixel         = 0
+    Content.ScrollBarThickness      = 2
+    Content.ScrollBarImageColor3    = Color3.fromRGB(70, 70, 70)
+    Content.CanvasSize              = UDim2.new(0, 0, 0, 0)
+    Content.AutomaticCanvasSize     = Enum.AutomaticSize.Y
+    Content.ZIndex                  = 81
+    Content.Parent                  = Win
+
+    local ContentLayout = Instance.new("UIListLayout")
+    ContentLayout.Padding       = UDim.new(0, 3)
+    ContentLayout.FillDirection = Enum.FillDirection.Vertical
+    ContentLayout.SortOrder     = Enum.SortOrder.LayoutOrder
+    ContentLayout.Parent        = Content
+
+    -- Populate rows from section holder
+    if sectionFrameRef and sectionFrameRef:FindFirstChild("Holder") then
+        for _, elem in ipairs(sectionFrameRef.Holder:GetChildren()) do
+            BuildPinnedRow(elem, Content, 81)
+        end
+        -- Watch for new elements added to holder later
+        sectionFrameRef.Holder.ChildAdded:Connect(function(child)
+            task.wait() -- let element finish setup
+            BuildPinnedRow(child, Content, 81)
+        end)
+    end
+
+    -- Close / unpin
+    CloseBtn.MouseButton1Click:Connect(function()
+        -- Reset pin button on the original section
+        pcall(function()
+            if sectionFrameRef and sectionFrameRef:FindFirstChild("NSUIPinButton") then
+                sectionFrameRef.NSUIPinButton.ImageColor3 = Color3.fromRGB(110, 110, 110)
+                sectionFrameRef.NSUIPinButton:SetAttribute("_Pinned", false)
+            end
+        end)
+        ActivePinnedWindows[key] = nil
+        Win:Destroy()
         SavePinnedFile()
     end)
 
-    RefreshPinnedPanelSize()
+    ActivePinnedWindows[key] = Win
     SavePinnedFile()
 end
 
--- Load saved pins (called after sections are created, see bottom of file)
-local PendingPins = {} -- {tabName, sectionTitle} loaded from file
+-- Pending pins loaded from file (applied after sections are created)
+local PendingPins = {}
 pcall(function()
     if isfile and isfile(NSUIPinnedFile) then
-        local raw = readfile(NSUIPinnedFile)
-        local decoded = HttpService:JSONDecode(raw)
+        local decoded = HttpService:JSONDecode(readfile(NSUIPinnedFile))
         for _, entry in ipairs(decoded) do
             table.insert(PendingPins, entry)
         end
@@ -1174,32 +1319,52 @@ end
 
 function CloseSearch()
     Debounce = true
-    TweenService:Create(SearchBar, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {BackgroundTransparency = 1,Size = UDim2.new(0, 460,0, 35)}):Play()
-    TweenService:Create(SearchBar.Icon, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
-    TweenService:Create(SearchBar.Clear, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
-    TweenService:Create(SearchBar.UIStroke, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {Transparency = 1}):Play()
-    TweenService:Create(SearchBar.Filter, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
-    TweenService:Create(SearchBar.Shadow.Image, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {ImageTransparency = 0.1}):Play()
-    TweenService:Create(SearchBar.Input, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
-    delay(.3,function()
-        SearchBar.Input.Visible = false
-    end)
-    task.wait(0.5)
+    -- Restore topbar contents
+    TweenService:Create(Topbar.Title,       TweenInfo.new(0.35, Enum.EasingStyle.Quint), {TextTransparency = 0}):Play()
+    for _, btn in ipairs(Topbar:GetChildren()) do
+        if btn:IsA("ImageButton") then
+            TweenService:Create(btn, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {ImageTransparency = 0.8}):Play()
+        end
+    end
+    -- Slide SearchBar out (shrink width, fade)
+    TweenService:Create(SearchBar, TweenInfo.new(0.35, Enum.EasingStyle.Quint), {Size = UDim2.new(0, 0, 0, 32), BackgroundTransparency = 1}):Play()
+    TweenService:Create(SearchBar.Icon,     TweenInfo.new(0.2, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
+    TweenService:Create(SearchBar.Clear,    TweenInfo.new(0.2, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
+    TweenService:Create(SearchBar.UIStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {Transparency = 1}):Play()
+    TweenService:Create(SearchBar.Filter,   TweenInfo.new(0.2, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
+    TweenService:Create(SearchBar.Input,    TweenInfo.new(0.15, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
+    delay(0.2, function() SearchBar.Input.Visible = false end)
+    task.wait(0.4)
     SearchBar.Visible = false
+    SearchBar.Input.Text = ""
     Debounce = false
 end
 function OpenSearch()
     Debounce = true
-    SearchBar.Visible = true
+    -- Hide topbar contents so search bar can take over the row
+    TweenService:Create(Topbar.Title,       TweenInfo.new(0.25, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
+    for _, btn in ipairs(Topbar:GetChildren()) do
+        if btn:IsA("ImageButton") and btn.Name ~= "Search" then
+            TweenService:Create(btn, TweenInfo.new(0.25, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
+        end
+    end
+    -- Move and parent SearchBar into Topbar so it sits inline
+    SearchBar.Parent = Topbar
+    SearchBar.AnchorPoint = Vector2.new(0.5, 0.5)
+    SearchBar.Position    = UDim2.new(0.5, 0, 0.5, 0)
+    SearchBar.Size        = UDim2.new(0, 0, 0, 32)
+    SearchBar.BackgroundTransparency = 0
+    SearchBar.Visible     = true
     SearchBar.Input.Visible = true
-    TweenService:Create(SearchBar, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {BackgroundTransparency = 0,Size = UDim2.new(0, 480,0, 40)}):Play()
-    TweenService:Create(SearchBar.Icon, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {ImageTransparency = 0.5}):Play()
-    TweenService:Create(SearchBar.Shadow.Image, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {ImageTransparency = 0.1}):Play()
+    -- Expand into topbar
+    TweenService:Create(SearchBar, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {Size = UDim2.new(1, -80, 0, 32)}):Play()
+    TweenService:Create(SearchBar.Icon,     TweenInfo.new(0.4, Enum.EasingStyle.Quint), {ImageTransparency = 0.4}):Play()
     TweenService:Create(SearchBar.UIStroke, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {Transparency = 0}):Play()
-    TweenService:Create(SearchBar.Clear, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {ImageTransparency = .8}):Play()
-    TweenService:Create(SearchBar.Filter, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {ImageTransparency = .8}):Play()
-    TweenService:Create(SearchBar.Input, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {TextTransparency = 0}):Play()
-    task.wait(0.5)
+    TweenService:Create(SearchBar.Clear,    TweenInfo.new(0.4, Enum.EasingStyle.Quint), {ImageTransparency = 0.6}):Play()
+    TweenService:Create(SearchBar.Filter,   TweenInfo.new(0.4, Enum.EasingStyle.Quint), {ImageTransparency = 0.6}):Play()
+    TweenService:Create(SearchBar.Input,    TweenInfo.new(0.4, Enum.EasingStyle.Quint), {TextTransparency = 0}):Play()
+    task.wait(0.45)
+    SearchBar.Input:CaptureFocus()
     Debounce = false
 end
 -- ── NSUI Global Search ───────────────────────────────────────────────────────
@@ -1406,30 +1571,47 @@ SearchBar.Input:GetPropertyChangedSignal("Text"):Connect(function()
                 if Element:IsA("Frame") and Element.Name ~= "Placeholder" and Element.Name ~= "SectionSpacing" then
 
                     if Element:FindFirstChild("Holder") then
-                        -- This is a Section (SectionTitle)
-                        local sectionTitle = Element.Name
+                        -- This is a Section frame - get its real title
+                        local sectionTitle = Element.Name  -- now correctly set to SectionName
+                        pcall(function()
+                            if Element:FindFirstChild("Title") and Element.Title.Text ~= "" then
+                                sectionTitle = Element.Title.Text
+                            end
+                        end)
                         local sectionMatches = string.find(string.upper(sectionTitle), InputText) ~= nil
 
                         for _, child in pairs(Element.Holder:GetChildren()) do
                             if child:IsA("Frame") and child.Name ~= "Placeholder" and child.Name ~= "SectionSpacing" then
-                                local childMatches = string.find(string.upper(child.Name), InputText) ~= nil
+                                local childTitle = child.Name
+                                pcall(function()
+                                    if child:FindFirstChild("Title") and child.Title.Text ~= "" then
+                                        childTitle = child.Title.Text
+                                    end
+                                end)
+                                local childMatches = string.find(string.upper(childTitle), InputText) ~= nil
                                 if sectionMatches or childMatches then
                                     resultOrder = resultOrder + 1
-                                    AddSearchCard(child.Name, tabName, sectionTitle, page, child, resultOrder)
+                                    AddSearchCard(childTitle, tabName, sectionTitle, page, child, resultOrder)
                                 end
                             end
                         end
 
-                        -- Also match the section header itself
+                        -- Also match the section header itself as a result
                         if sectionMatches then
                             resultOrder = resultOrder + 1
-                            AddSearchCard("[Section] " .. sectionTitle, tabName, "", page, Element, resultOrder - 1)
+                            AddSearchCard(sectionTitle, tabName, "", page, Element, resultOrder - 1)
                         end
                     else
                         -- Top-level element (no section)
-                        if string.find(string.upper(Element.Name), InputText) ~= nil then
+                        local elemTitle = Element.Name
+                        pcall(function()
+                            if Element:FindFirstChild("Title") and Element.Title.Text ~= "" then
+                                elemTitle = Element.Title.Text
+                            end
+                        end)
+                        if string.find(string.upper(elemTitle), InputText) ~= nil then
                             resultOrder = resultOrder + 1
-                            AddSearchCard(Element.Name, tabName, "", page, Element, resultOrder)
+                            AddSearchCard(elemTitle, tabName, "", page, Element, resultOrder)
                         end
                     end
 
@@ -1447,16 +1629,11 @@ SearchBar.Input:GetPropertyChangedSignal("Text"):Connect(function()
 end)
 -- ─────────────────────────────────────────────────────────────────────────────
 SearchBar.Clear.MouseButton1Down:Connect(function()
-    Filler.Position = UDim2.new(0.957,0,.5,0)
-    Filler.Size = UDim2.new(0,1,0,1)
-    Filler.BackgroundTransparency = .9
-
-    local goal = {}
-    goal.Size = UDim2.new(0,1000,0,500)
-    goal.BackgroundTransparency = 1
-
-    TweenService:Create(Filler, TweenInfo.new(1,Enum.EasingStyle.Sine,Enum.EasingDirection.Out), goal):Play()
     SearchBar.Input.Text = ""
+    if not SearchHided then
+        SearchHided = true
+        spawn(CloseSearch)
+    end
 end)
 
 function Maximise()
@@ -2351,6 +2528,7 @@ end
             local Debounce = false
             local Section = Elements.Template.SectionTitle:Clone()
             SectionValue.Holder = Section.Holder
+            Section.Name = SectionName   -- fix: use real name so search path shows correctly
             Section.Title.Text = SectionName
             Section.Visible = true
             Section.Parent = TabPage
@@ -2376,68 +2554,61 @@ end
             TweenService:Create(Section.Title, TweenInfo.new(0.7, Enum.EasingStyle.Quint), { TextTransparency = 0 })
                 :Play()
 
-            -- ── Pin Button ──────────────────────────────────────────────────
-            -- Small "⊙/⊛" icon at the top-right corner of the section header.
-            -- Clicking it pins/unpins the section to the left-side Pinned Panel.
-            local isPinned = false
-            local PinBtn = Instance.new("TextButton")
-            PinBtn.Name                = "NSUIPinButton"
-            PinBtn.Size                = UDim2.new(0, 22, 0, 22)
-            PinBtn.AnchorPoint         = Vector2.new(1, 0.5)
-            PinBtn.Position            = UDim2.new(1, -6, 0, 17)   -- top-right of the section frame
+            -- ── Pin Button (image icon, top-right of section header) ─────────
+            local PinBtn = Instance.new("ImageButton")
+            PinBtn.Name                 = "NSUIPinButton"
+            PinBtn.Size                 = UDim2.new(0, 16, 0, 16)
+            PinBtn.AnchorPoint          = Vector2.new(1, 0.5)
+            PinBtn.Position             = UDim2.new(1, -8, 0, 17)
             PinBtn.BackgroundTransparency = 1
-            PinBtn.Text                = "⊙"
-            PinBtn.TextColor3          = Color3.fromRGB(110, 110, 110)
-            PinBtn.Font                = Enum.Font.GothamBold
-            PinBtn.TextSize            = 14
-            PinBtn.ZIndex              = 20     -- above Section.Clickable
-            PinBtn.Parent              = Section
+            PinBtn.Image                = "rbxassetid://10734886004"
+            PinBtn.ImageColor3          = Color3.fromRGB(90, 90, 90)
+            PinBtn.ImageTransparency    = 0.2
+            PinBtn.ZIndex               = 20
+            PinBtn:SetAttribute("_Pinned", false)
+            PinBtn.Parent               = Section
 
-            -- Hover glow
             PinBtn.MouseEnter:Connect(function()
-                if not isPinned then
-                    TweenService:Create(PinBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {TextColor3 = Color3.fromRGB(180, 180, 180)}):Play()
+                if not PinBtn:GetAttribute("_Pinned") then
+                    TweenService:Create(PinBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {ImageColor3 = Color3.fromRGB(170, 170, 170)}):Play()
                 end
             end)
             PinBtn.MouseLeave:Connect(function()
-                if not isPinned then
-                    TweenService:Create(PinBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {TextColor3 = Color3.fromRGB(110, 110, 110)}):Play()
+                if not PinBtn:GetAttribute("_Pinned") then
+                    TweenService:Create(PinBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {ImageColor3 = Color3.fromRGB(90, 90, 90)}):Play()
                 end
             end)
 
             PinBtn.MouseButton1Click:Connect(function()
-                isPinned = not isPinned
-                if isPinned then
-                    PinBtn.Text       = "⊛"
-                    PinBtn.TextColor3 = Color3.fromRGB(70, 150, 220)
-                    AddPinnedEntry(Name, SectionName, TabPage, Section)
+                local nowPinned = not PinBtn:GetAttribute("_Pinned")
+                PinBtn:SetAttribute("_Pinned", nowPinned)
+                if nowPinned then
+                    -- Darker/brighter tint = "active" (no blue, just brighter white-ish)
+                    TweenService:Create(PinBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {ImageColor3 = Color3.fromRGB(210, 210, 210), ImageTransparency = 0}):Play()
+                    CreatePinnedWindow(Name, SectionName, Section, TabPage)
                 else
-                    PinBtn.Text       = "⊙"
-                    PinBtn.TextColor3 = Color3.fromRGB(110, 110, 110)
-                    -- Remove from panel
+                    TweenService:Create(PinBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {ImageColor3 = Color3.fromRGB(90, 90, 90), ImageTransparency = 0.2}):Play()
                     local key = Name .. "|" .. SectionName
-                    local entry = PinnedList:FindFirstChild(key)
-                    if entry then
-                        entry:Destroy()
-                        RefreshPinnedPanelSize()
+                    if ActivePinnedWindows[key] then
+                        ActivePinnedWindows[key]:Destroy()
+                        ActivePinnedWindows[key] = nil
                         SavePinnedFile()
                     end
                 end
             end)
 
-            -- Auto-restore pin state from saved file
+            -- Restore from saved pins
             task.defer(function()
                 for _, pending in ipairs(PendingPins) do
                     if pending.tab == Name and pending.section == SectionName then
-                        isPinned = true
-                        PinBtn.Text       = "⊛"
-                        PinBtn.TextColor3 = Color3.fromRGB(70, 150, 220)
-                        AddPinnedEntry(Name, SectionName, TabPage, Section)
+                        PinBtn:SetAttribute("_Pinned", true)
+                        TweenService:Create(PinBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {ImageColor3 = Color3.fromRGB(210, 210, 210), ImageTransparency = 0}):Play()
+                        CreatePinnedWindow(Name, SectionName, Section, TabPage, pending.x, pending.y)
                         break
                     end
                 end
             end)
-            -- ────────────────────────────────────────────────────────────────
+            -- ─────────────────────────────────────────────────────────────────
 
             function SectionValue:Set(NewSection)
                 Section.Title.Text = NewSection
