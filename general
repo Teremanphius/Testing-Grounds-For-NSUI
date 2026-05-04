@@ -222,26 +222,27 @@ local function BuildPinnedRow(element, winContent, zBase)
     if not element:IsA("Frame") then return end
     if element.Name == "Placeholder" or element.Name == "SectionSpacing" then return end
 
-    local Row = Instance.new("Frame")
-    Row.Name              = element.Name
-    Row.Size              = UDim2.new(1, 0, 0, 34)
-    Row.BackgroundColor3  = Color3.fromRGB(32, 32, 32)
-    Row.BackgroundTransparency = 0
-    Row.BorderSizePixel   = 0
-    Row.ZIndex            = zBase + 1
-    Row.ClipsDescendants  = true
-    Row.Parent            = winContent
+    -- Detect element type from its children structure
+    local isToggle      = element:FindFirstChild("Switch") ~= nil
+    local isSlider      = element:FindFirstChild("Main") ~= nil and element:FindFirstChild("Main"):FindFirstChild("Progress") ~= nil
+    local isColorPicker = element:FindFirstChild("CPBackground") ~= nil
+    local isDropdown    = element:FindFirstChild("Selected") ~= nil and element:FindFirstChild("List") ~= nil
+    local isInput       = element:FindFirstChild("InputFrame") ~= nil and not isDropdown
+    local isKeybind     = element:FindFirstChild("KeybindFrame") ~= nil
+    local isButton      = element:FindFirstChild("ElementIndicator") ~= nil and not isToggle and not isSlider and not isDropdown and not isColorPicker
+    local isParagraph   = element:FindFirstChild("Content") ~= nil
+    local isLabel       = not isToggle and not isSlider and not isButton and not isInput and not isKeybind and not isDropdown and not isColorPicker and not isParagraph
 
-    local rc = Instance.new("UICorner")
-    rc.CornerRadius = UDim.new(0, 5)
-    rc.Parent = Row
+    -- Row height by type
+    local rowH = 38
+    if isSlider       then rowH = 54 end
+    if isInput        then rowH = 46 end
+    if isKeybind      then rowH = 46 end
+    if isDropdown     then rowH = 42 end
+    if isColorPicker  then rowH = 42 end
+    if isParagraph    then rowH = 50 end
 
-    local rs = Instance.new("UIStroke")
-    rs.Color       = Color3.fromRGB(55, 55, 55)
-    rs.Thickness   = 1
-    rs.Parent      = Row
-
-    -- Element label (use Title.Text if available, else Name)
+    -- Get label text
     local labelText = element.Name
     pcall(function()
         if element:FindFirstChild("Title") and element.Title.Text ~= "" then
@@ -249,92 +250,350 @@ local function BuildPinnedRow(element, winContent, zBase)
         end
     end)
 
+    -- ── Row container ────────────────────────────────────────────────────
+    local Row = Instance.new("Frame")
+    Row.Name                    = element.Name
+    Row.Size                    = UDim2.new(1, -2, 0, rowH)
+    Row.BackgroundColor3        = Color3.fromRGB(32, 32, 32)
+    Row.BackgroundTransparency  = 0
+    Row.BorderSizePixel         = 0
+    Row.ZIndex                  = zBase + 1
+    Row.ClipsDescendants        = true
+    Row.Parent                  = winContent
+
+    local rc = Instance.new("UICorner")
+    rc.CornerRadius = UDim.new(0, 6)
+    rc.Parent = Row
+
+    local rs = Instance.new("UIStroke")
+    rs.Color     = Color3.fromRGB(50, 50, 50)
+    rs.Thickness = 1
+    rs.Parent    = Row
+
+    -- Label
     local Lbl = Instance.new("TextLabel")
-    Lbl.Size               = UDim2.new(1, -70, 1, 0)
-    Lbl.Position           = UDim2.new(0, 10, 0, 0)
+    Lbl.Size               = UDim2.new(0.54, -4, 0, 18)
+    Lbl.Position           = UDim2.new(0, 9, 0, if isSlider then 4 else 0)
+    Lbl.AnchorPoint        = Vector2.new(0, if isSlider then 0 else 0.5)
+    if not isSlider then Lbl.Position = UDim2.new(0, 9, 0.5, 0) end
     Lbl.BackgroundTransparency = 1
     Lbl.Text               = labelText
     Lbl.TextColor3         = Color3.fromRGB(210, 210, 210)
-    Lbl.Font               = Enum.Font.Gotham
-    Lbl.TextSize           = 12
+    Lbl.Font               = Enum.Font.GothamBold
+    Lbl.TextSize           = 11
     Lbl.TextXAlignment     = Enum.TextXAlignment.Left
     Lbl.TextTruncate       = Enum.TextTruncate.AtEnd
     Lbl.ZIndex             = zBase + 2
     Lbl.Parent             = Row
 
-    -- Right-side indicator: try to mirror ElementIndicator / toggle state
-    local RightLbl = Instance.new("TextLabel")
-    RightLbl.Size               = UDim2.new(0, 58, 1, 0)
-    RightLbl.AnchorPoint        = Vector2.new(1, 0)
-    RightLbl.Position           = UDim2.new(1, -4, 0, 0)
-    RightLbl.BackgroundTransparency = 1
-    RightLbl.Text               = ""
-    RightLbl.TextColor3         = Color3.fromRGB(130, 130, 130)
-    RightLbl.Font               = Enum.Font.Gotham
-    RightLbl.TextSize           = 11
-    RightLbl.TextXAlignment     = Enum.TextXAlignment.Right
-    RightLbl.TextTruncate       = Enum.TextTruncate.AtEnd
-    RightLbl.ZIndex             = zBase + 2
-    RightLbl.Parent             = Row
+    -- ── TOGGLE ──────────────────────────────────────────────────────────
+    if isToggle then
+        -- Mini switch housing
+        local SwBg = Instance.new("Frame")
+        SwBg.Size            = UDim2.new(0, 44, 0, 22)
+        SwBg.AnchorPoint     = Vector2.new(1, 0.5)
+        SwBg.Position        = UDim2.new(1, -8, 0.5, 0)
+        SwBg.BorderSizePixel = 0
+        SwBg.ZIndex          = zBase + 2
+        SwBg.Parent          = Row
+        local swCorner = Instance.new("UICorner")
+        swCorner.CornerRadius = UDim.new(1, 0)
+        swCorner.Parent = SwBg
+        local swStroke = Instance.new("UIStroke")
+        swStroke.Thickness = 1
+        swStroke.Parent = SwBg
 
-    -- Mirror ElementIndicator text (button label / keybind etc)
-    pcall(function()
-        if element:FindFirstChild("ElementIndicator") then
-            RightLbl.Text = element.ElementIndicator.Text
-            element.ElementIndicator:GetPropertyChangedSignal("Text"):Connect(function()
-                RightLbl.Text = element.ElementIndicator.Text
+        local Dot = Instance.new("Frame")
+        Dot.Size             = UDim2.new(0, 14, 0, 14)
+        Dot.AnchorPoint      = Vector2.new(0.5, 0.5)
+        Dot.Position         = UDim2.new(0, 13, 0.5, 0)
+        Dot.BorderSizePixel  = 0
+        Dot.ZIndex           = zBase + 3
+        Dot.Parent           = SwBg
+        local dotCorner = Instance.new("UICorner")
+        dotCorner.CornerRadius = UDim.new(1, 0)
+        dotCorner.Parent = Dot
+
+        local function SyncSwitch()
+            pcall(function()
+                local orig = element.Switch
+                local origInd = orig.Indicator
+                SwBg.BackgroundColor3 = orig.BackgroundColor3
+                swStroke.Color        = orig.UIStroke.Color
+                Dot.BackgroundColor3  = origInd.BackgroundColor3
+                -- on = indicator offset -20 from right; off = -40
+                local offX = origInd.Position.X.Offset
+                if offX > -32 then -- ON state
+                    TweenService:Create(Dot, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0, 31, 0.5, 0)}):Play()
+                else -- OFF state
+                    TweenService:Create(Dot, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0, 13, 0.5, 0)}):Play()
+                end
             end)
         end
-    end)
-
-    -- Mirror toggle visual (small circle indicator)
-    local ToggleDot = nil
-    pcall(function()
-        if element:FindFirstChild("Toggle") and element.Toggle:FindFirstChild("Indicator") then
-            ToggleDot = Instance.new("Frame")
-            ToggleDot.Size             = UDim2.new(0, 10, 0, 10)
-            ToggleDot.AnchorPoint      = Vector2.new(1, 0.5)
-            ToggleDot.Position         = UDim2.new(1, -8, 0.5, 0)
-            ToggleDot.BackgroundColor3 = element.Toggle.Indicator.BackgroundColor3
-            ToggleDot.BorderSizePixel  = 0
-            ToggleDot.ZIndex           = zBase + 3
-            ToggleDot.Parent           = Row
-
-            local dc = Instance.new("UICorner")
-            dc.CornerRadius = UDim.new(1, 0)
-            dc.Parent = ToggleDot
-
-            element.Toggle.Indicator:GetPropertyChangedSignal("BackgroundColor3"):Connect(function()
-                ToggleDot.BackgroundColor3 = element.Toggle.Indicator.BackgroundColor3
-            end)
-        end
-    end)
-
-    -- Click proxy → fire original Interact
-    local Btn = Instance.new("TextButton")
-    Btn.Size               = UDim2.new(1, 0, 1, 0)
-    Btn.BackgroundTransparency = 1
-    Btn.Text               = ""
-    Btn.ZIndex             = zBase + 4
-    Btn.Parent             = Row
-
-    Btn.MouseEnter:Connect(function()
-        TweenService:Create(Row, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {BackgroundColor3 = Color3.fromRGB(44, 44, 44)}):Play()
-    end)
-    Btn.MouseLeave:Connect(function()
-        TweenService:Create(Row, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {BackgroundColor3 = Color3.fromRGB(32, 32, 32)}):Play()
-    end)
-    Btn.MouseButton1Click:Connect(function()
+        SyncSwitch()
         pcall(function()
-            if element:FindFirstChild("Interact") then
-                element.Interact:Activate()
+            element.Switch.Indicator:GetPropertyChangedSignal("BackgroundColor3"):Connect(SyncSwitch)
+            element.Switch.Indicator:GetPropertyChangedSignal("Position"):Connect(SyncSwitch)
+            element.Switch.UIStroke:GetPropertyChangedSignal("Color"):Connect(swStroke and function()
+                swStroke.Color = element.Switch.UIStroke.Color
+            end or function() end)
+        end)
+
+        local Btn = Instance.new("TextButton")
+        Btn.Size = UDim2.new(1,0,1,0); Btn.BackgroundTransparency=1; Btn.Text=""; Btn.ZIndex=zBase+5; Btn.Parent=Row
+        Btn.MouseButton1Click:Connect(function() pcall(function() element.Interact:Activate() end) end)
+        Btn.MouseEnter:Connect(function() TweenService:Create(Row,TweenInfo.new(0.2,Enum.EasingStyle.Quint),{BackgroundColor3=Color3.fromRGB(42,42,42)}):Play() end)
+        Btn.MouseLeave:Connect(function() TweenService:Create(Row,TweenInfo.new(0.2,Enum.EasingStyle.Quint),{BackgroundColor3=Color3.fromRGB(32,32,32)}):Play() end)
+
+    -- ── SLIDER ──────────────────────────────────────────────────────────
+    elseif isSlider then
+        Lbl.AnchorPoint = Vector2.new(0, 0)
+        Lbl.Position    = UDim2.new(0, 9, 0, 5)
+
+        local ValLbl = Instance.new("TextLabel")
+        ValLbl.Size = UDim2.new(0.45, 0, 0, 14)
+        ValLbl.AnchorPoint = Vector2.new(1, 0)
+        ValLbl.Position = UDim2.new(1, -8, 0, 5)
+        ValLbl.BackgroundTransparency = 1
+        ValLbl.TextColor3 = Color3.fromRGB(100, 160, 220)
+        ValLbl.Font = Enum.Font.GothamBold
+        ValLbl.TextSize = 11
+        ValLbl.TextXAlignment = Enum.TextXAlignment.Right
+        ValLbl.ZIndex = zBase + 2
+        ValLbl.Parent = Row
+        pcall(function()
+            ValLbl.Text = element.Main.Information.Text
+            element.Main.Information:GetPropertyChangedSignal("Text"):Connect(function()
+                ValLbl.Text = element.Main.Information.Text
+            end)
+        end)
+
+        -- Mini slider track
+        local Track = Instance.new("Frame")
+        Track.Size = UDim2.new(1, -18, 0, 7)
+        Track.Position = UDim2.new(0, 9, 0, 32)
+        Track.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+        Track.BorderSizePixel = 0
+        Track.ZIndex = zBase + 2
+        Track.Parent = Row
+        local tkCorner = Instance.new("UICorner"); tkCorner.CornerRadius = UDim.new(1,0); tkCorner.Parent = Track
+
+        local Fill = Instance.new("Frame")
+        Fill.Size = UDim2.new(0, 0, 1, 0)
+        Fill.BackgroundColor3 = Color3.fromRGB(43, 105, 159)
+        Fill.BorderSizePixel = 0
+        Fill.ZIndex = zBase + 3
+        Fill.Parent = Track
+        local fillCorner = Instance.new("UICorner"); fillCorner.CornerRadius = UDim.new(1,0); fillCorner.Parent = Fill
+
+        local function SyncSlider()
+            pcall(function()
+                local origProg = element.Main.Progress
+                local origMain = element.Main
+                if origMain.AbsoluteSize.X > 0 then
+                    local pct = math.clamp(origProg.AbsoluteSize.X / origMain.AbsoluteSize.X, 0, 1)
+                    Fill.Size = UDim2.new(pct, 0, 1, 0)
+                end
+                Fill.BackgroundColor3 = origProg.BackgroundColor3
+            end)
+        end
+        task.delay(0.5, SyncSlider)
+        pcall(function() element.Main.Progress:GetPropertyChangedSignal("AbsoluteSize"):Connect(SyncSlider) end)
+
+        local Btn = Instance.new("TextButton")
+        Btn.Size=UDim2.new(1,0,1,0); Btn.BackgroundTransparency=1; Btn.Text=""; Btn.ZIndex=zBase+5; Btn.Parent=Row
+        Btn.MouseEnter:Connect(function() TweenService:Create(Row,TweenInfo.new(0.2,Enum.EasingStyle.Quint),{BackgroundColor3=Color3.fromRGB(42,42,42)}):Play() end)
+        Btn.MouseLeave:Connect(function() TweenService:Create(Row,TweenInfo.new(0.2,Enum.EasingStyle.Quint),{BackgroundColor3=Color3.fromRGB(32,32,32)}):Play() end)
+
+    -- ── INPUT ────────────────────────────────────────────────────────────
+    elseif isInput then
+        Lbl.Size = UDim2.new(0.42, -4, 1, 0)
+
+        local MiniBox = Instance.new("TextBox")
+        MiniBox.Size = UDim2.new(0.54, -4, 0, 26)
+        MiniBox.AnchorPoint = Vector2.new(1, 0.5)
+        MiniBox.Position = UDim2.new(1, -8, 0.5, 0)
+        MiniBox.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
+        MiniBox.BorderSizePixel = 0
+        MiniBox.Font = Enum.Font.Gotham
+        MiniBox.TextSize = 11
+        MiniBox.TextColor3 = Color3.fromRGB(200, 200, 200)
+        MiniBox.PlaceholderColor3 = Color3.fromRGB(100, 100, 100)
+        MiniBox.ClearTextOnFocus = false
+        MiniBox.ZIndex = zBase + 2
+        MiniBox.Parent = Row
+        local mbCorner = Instance.new("UICorner"); mbCorner.CornerRadius = UDim.new(0,5); mbCorner.Parent = MiniBox
+        local mbStroke = Instance.new("UIStroke"); mbStroke.Color=Color3.fromRGB(60,60,60); mbStroke.Thickness=1; mbStroke.Parent=MiniBox
+
+        pcall(function()
+            local origBox = element.InputFrame.InputBox
+            MiniBox.PlaceholderText = origBox.PlaceholderText or ""
+            MiniBox.Text = origBox.Text
+            origBox:GetPropertyChangedSignal("Text"):Connect(function()
+                if not MiniBox:IsFocused() then MiniBox.Text = origBox.Text end
+            end)
+            MiniBox.FocusLost:Connect(function(enter)
+                origBox.Text = MiniBox.Text
+                if enter then origBox:CaptureFocus() task.wait() origBox:ReleaseFocus(true) end
+            end)
+            MiniBox.Focused:Connect(function()
+                TweenService:Create(mbStroke, TweenInfo.new(0.2), {Color = Color3.fromRGB(80,130,200)}):Play()
+            end)
+            MiniBox.FocusLost:Connect(function()
+                TweenService:Create(mbStroke, TweenInfo.new(0.2), {Color = Color3.fromRGB(60,60,60)}):Play()
+            end)
+        end)
+
+    -- ── KEYBIND ──────────────────────────────────────────────────────────
+    elseif isKeybind then
+        Lbl.Size = UDim2.new(0.42, -4, 1, 0)
+
+        local KbBox = Instance.new("TextBox")
+        KbBox.Size = UDim2.new(0.54, -4, 0, 26)
+        KbBox.AnchorPoint = Vector2.new(1, 0.5)
+        KbBox.Position = UDim2.new(1, -8, 0.5, 0)
+        KbBox.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
+        KbBox.BorderSizePixel = 0
+        KbBox.Font = Enum.Font.GothamBold
+        KbBox.TextSize = 10
+        KbBox.TextColor3 = Color3.fromRGB(180, 180, 180)
+        KbBox.PlaceholderText = "Set Keybind"
+        KbBox.PlaceholderColor3 = Color3.fromRGB(90, 90, 90)
+        KbBox.ClearTextOnFocus = false
+        KbBox.ZIndex = zBase + 2
+        KbBox.Parent = Row
+        local kbCorner = Instance.new("UICorner"); kbCorner.CornerRadius = UDim.new(0,5); kbCorner.Parent = KbBox
+        local kbStroke = Instance.new("UIStroke"); kbStroke.Color=Color3.fromRGB(60,60,60); kbStroke.Thickness=1; kbStroke.Parent=KbBox
+
+        pcall(function()
+            local origBox = element.KeybindFrame.KeybindBox
+            KbBox.Text = origBox.Text
+            origBox:GetPropertyChangedSignal("Text"):Connect(function()
+                if not KbBox:IsFocused() then KbBox.Text = origBox.Text end
+            end)
+            KbBox.FocusLost:Connect(function(enter)
+                if enter then
+                    origBox.Text = KbBox.Text
+                    origBox:CaptureFocus() task.wait() origBox:ReleaseFocus(true)
+                else
+                    KbBox.Text = origBox.Text
+                end
+            end)
+        end)
+
+    -- ── DROPDOWN ────────────────────────────────────────────────────────
+    elseif isDropdown then
+        Lbl.Size = UDim2.new(0.42, -4, 1, 0)
+
+        local SelLbl = Instance.new("TextLabel")
+        SelLbl.Size = UDim2.new(0.54, -4, 0, 22)
+        SelLbl.AnchorPoint = Vector2.new(1, 0.5)
+        SelLbl.Position = UDim2.new(1, -8, 0.5, 0)
+        SelLbl.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
+        SelLbl.BorderSizePixel = 0
+        SelLbl.Font = Enum.Font.Gotham
+        SelLbl.TextSize = 10
+        SelLbl.TextColor3 = Color3.fromRGB(180, 180, 180)
+        SelLbl.ZIndex = zBase + 2
+        SelLbl.Parent = Row
+        local selCorner = Instance.new("UICorner"); selCorner.CornerRadius = UDim.new(0,5); selCorner.Parent = SelLbl
+        local selStroke = Instance.new("UIStroke"); selStroke.Color=Color3.fromRGB(55,55,55); selStroke.Thickness=1; selStroke.Parent=SelLbl
+        pcall(function()
+            SelLbl.Text = element.Selected.Text
+            element.Selected:GetPropertyChangedSignal("Text"):Connect(function()
+                SelLbl.Text = element.Selected.Text
+            end)
+        end)
+
+        local Btn = Instance.new("TextButton")
+        Btn.Size=UDim2.new(1,0,1,0); Btn.BackgroundTransparency=1; Btn.Text=""; Btn.ZIndex=zBase+5; Btn.Parent=Row
+        Btn.MouseButton1Click:Connect(function() pcall(function() element.Interact:Activate() end) end)
+        Btn.MouseEnter:Connect(function() TweenService:Create(Row,TweenInfo.new(0.2,Enum.EasingStyle.Quint),{BackgroundColor3=Color3.fromRGB(42,42,42)}):Play() end)
+        Btn.MouseLeave:Connect(function() TweenService:Create(Row,TweenInfo.new(0.2,Enum.EasingStyle.Quint),{BackgroundColor3=Color3.fromRGB(32,32,32)}):Play() end)
+
+    -- ── COLOR PICKER ─────────────────────────────────────────────────────
+    elseif isColorPicker then
+        Lbl.Size = UDim2.new(0.54, -4, 1, 0)
+
+        local ColorDot = Instance.new("Frame")
+        ColorDot.Size = UDim2.new(0, 30, 0, 20)
+        ColorDot.AnchorPoint = Vector2.new(1, 0.5)
+        ColorDot.Position = UDim2.new(1, -8, 0.5, 0)
+        ColorDot.BorderSizePixel = 0
+        ColorDot.ZIndex = zBase + 2
+        ColorDot.Parent = Row
+        local cdCorner = Instance.new("UICorner"); cdCorner.CornerRadius = UDim.new(0,5); cdCorner.Parent = ColorDot
+        local cdStroke = Instance.new("UIStroke"); cdStroke.Color=Color3.fromRGB(65,65,65); cdStroke.Thickness=1; cdStroke.Parent=ColorDot
+        pcall(function()
+            ColorDot.BackgroundColor3 = element.CPBackground.Display.BackgroundColor3
+            element.CPBackground.Display:GetPropertyChangedSignal("BackgroundColor3"):Connect(function()
+                ColorDot.BackgroundColor3 = element.CPBackground.Display.BackgroundColor3
+            end)
+        end)
+
+        local Btn = Instance.new("TextButton")
+        Btn.Size=UDim2.new(1,0,1,0); Btn.BackgroundTransparency=1; Btn.Text=""; Btn.ZIndex=zBase+5; Btn.Parent=Row
+        Btn.MouseButton1Click:Connect(function() pcall(function() element.Interact:Activate() end) end)
+        Btn.MouseEnter:Connect(function() TweenService:Create(Row,TweenInfo.new(0.2,Enum.EasingStyle.Quint),{BackgroundColor3=Color3.fromRGB(42,42,42)}):Play() end)
+        Btn.MouseLeave:Connect(function() TweenService:Create(Row,TweenInfo.new(0.2,Enum.EasingStyle.Quint),{BackgroundColor3=Color3.fromRGB(32,32,32)}):Play() end)
+
+    -- ── BUTTON / GENERIC ─────────────────────────────────────────────────
+    else
+        Lbl.Size = UDim2.new(0.55, -4, 1, 0)
+
+        local IndLbl = Instance.new("TextLabel")
+        IndLbl.Size = UDim2.new(0.42, 0, 1, 0)
+        IndLbl.AnchorPoint = Vector2.new(1, 0.5)
+        IndLbl.Position = UDim2.new(1, -8, 0.5, 0)
+        IndLbl.BackgroundTransparency = 1
+        IndLbl.TextColor3 = Color3.fromRGB(85, 85, 85)
+        IndLbl.Font = Enum.Font.Gotham
+        IndLbl.TextSize = 10
+        IndLbl.TextXAlignment = Enum.TextXAlignment.Right
+        IndLbl.TextTruncate = Enum.TextTruncate.AtEnd
+        IndLbl.ZIndex = zBase + 2
+        IndLbl.Parent = Row
+        pcall(function()
+            if element:FindFirstChild("ElementIndicator") then
+                IndLbl.Text = element.ElementIndicator.Text
+                element.ElementIndicator:GetPropertyChangedSignal("Text"):Connect(function()
+                    IndLbl.Text = element.ElementIndicator.Text
+                end)
+            end
+            if isParagraph and element:FindFirstChild("Content") then
+                Lbl.Size = UDim2.new(1, -16, 0, 16)
+                Lbl.Position = UDim2.new(0, 9, 0, 4)
+                Lbl.AnchorPoint = Vector2.new(0, 0)
+                local CntLbl = Instance.new("TextLabel")
+                CntLbl.Size = UDim2.new(1, -16, 0, 28)
+                CntLbl.Position = UDim2.new(0, 9, 0, 20)
+                CntLbl.BackgroundTransparency = 1
+                CntLbl.TextColor3 = Color3.fromRGB(100, 100, 100)
+                CntLbl.Font = Enum.Font.Gotham
+                CntLbl.TextSize = 10
+                CntLbl.TextXAlignment = Enum.TextXAlignment.Left
+                CntLbl.TextWrapped = true
+                CntLbl.TextTruncate = Enum.TextTruncate.AtEnd
+                CntLbl.Text = element.Content.Text
+                CntLbl.ZIndex = zBase + 2
+                CntLbl.Parent = Row
+                IndLbl.Text = ""
             end
         end)
-        -- Brief press flash (darker → restore)
-        TweenService:Create(Row, TweenInfo.new(0.1, Enum.EasingStyle.Quint), {BackgroundColor3 = Color3.fromRGB(24, 24, 24)}):Play()
-        task.wait(0.12)
-        TweenService:Create(Row, TweenInfo.new(0.25, Enum.EasingStyle.Quint), {BackgroundColor3 = Color3.fromRGB(32, 32, 32)}):Play()
-    end)
+
+        if not isParagraph then
+            local Btn = Instance.new("TextButton")
+            Btn.Size=UDim2.new(1,0,1,0); Btn.BackgroundTransparency=1; Btn.Text=""; Btn.ZIndex=zBase+5; Btn.Parent=Row
+            Btn.MouseButton1Click:Connect(function()
+                pcall(function() if element:FindFirstChild("Interact") then element.Interact:Activate() end end)
+                TweenService:Create(Row,TweenInfo.new(0.1,Enum.EasingStyle.Quint),{BackgroundColor3=Color3.fromRGB(24,24,24)}):Play()
+                task.wait(0.12)
+                TweenService:Create(Row,TweenInfo.new(0.25,Enum.EasingStyle.Quint),{BackgroundColor3=Color3.fromRGB(32,32,32)}):Play()
+            end)
+            Btn.MouseEnter:Connect(function() TweenService:Create(Row,TweenInfo.new(0.2,Enum.EasingStyle.Quint),{BackgroundColor3=Color3.fromRGB(42,42,42)}):Play() end)
+            Btn.MouseLeave:Connect(function() TweenService:Create(Row,TweenInfo.new(0.2,Enum.EasingStyle.Quint),{BackgroundColor3=Color3.fromRGB(32,32,32)}):Play() end)
+        end
+    end
 end
 
 -- Create a draggable floating window for a pinned section
@@ -1318,6 +1577,13 @@ function Unhide()
 end
 
 function CloseSearch()
+    -- Disconnect the position tracker
+    pcall(function()
+        if _G._NSUISearchPosConn then
+            _G._NSUISearchPosConn:Disconnect()
+            _G._NSUISearchPosConn = nil
+        end
+    end)
     -- Restore topbar contents
     TweenService:Create(Topbar.Title, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {TextTransparency = 0}):Play()
     for _, btn in ipairs(Topbar:GetChildren()) do
@@ -1325,18 +1591,20 @@ function CloseSearch()
             TweenService:Create(btn, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {ImageTransparency = 0.8}):Play()
         end
     end
-    -- Shrink SearchBar back to zero so it disappears
-    TweenService:Create(SearchBar, TweenInfo.new(0.35, Enum.EasingStyle.Quint), {Size = UDim2.new(0, 0, 0, 39), BackgroundTransparency = 1}):Play()
+    -- Fade out SearchBar
     TweenService:Create(SearchBar.Icon,     TweenInfo.new(0.2, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
     TweenService:Create(SearchBar.Clear,    TweenInfo.new(0.2, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
     TweenService:Create(SearchBar.UIStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {Transparency = 1}):Play()
     TweenService:Create(SearchBar.Filter,   TweenInfo.new(0.2, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
     TweenService:Create(SearchBar.Input,    TweenInfo.new(0.15, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
+    TweenService:Create(SearchBar,          TweenInfo.new(0.3, Enum.EasingStyle.Quint), {BackgroundTransparency = 1}):Play()
     task.wait(0.2)
     SearchBar.Input.Visible = false
     task.wait(0.2)
     SearchBar.Visible = false
     SearchBar.Input.Text = ""
+    -- Re-parent back into Main so it is ready for next open
+    SearchBar.Parent = Main
 end
 function OpenSearch()
     Debounce = true
@@ -1347,18 +1615,32 @@ function OpenSearch()
             TweenService:Create(btn, TweenInfo.new(0.25, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
         end
     end
-    -- Keep SearchBar in Main but reposition it to sit on top of the Topbar area
-    -- Topbar is at the top of Main (y=0), height 45. We cover it with ZIndex 200.
-    SearchBar.Parent            = Main  -- always stays in Main
-    SearchBar.AnchorPoint       = Vector2.new(0, 0)
-    SearchBar.Position          = UDim2.new(0, 5, 0, 3)
-    SearchBar.Size              = UDim2.new(0, 0, 0, 39)
-    SearchBar.BackgroundTransparency = 0
-    SearchBar.ZIndex            = 200   -- renders above all topbar content
-    SearchBar.Visible           = true
-    SearchBar.Input.Visible     = true
-    -- Slide open across the topbar width (leave ~46px on right for the Search icon)
-    TweenService:Create(SearchBar, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {Size = UDim2.new(1, -50, 0, 39)}):Play()
+
+    -- Re-parent SearchBar to the ScreenGui so it can float ABOVE Main
+    SearchBar.Parent        = NSUI
+    SearchBar.ZIndex        = 500
+    SearchBar.AnchorPoint   = Vector2.new(0, 1)
+    SearchBar.BackgroundTransparency = 1
+
+    -- Position function: anchor SearchBar's bottom edge 6px above Main's top edge
+    local function UpdateSearchPos()
+        pcall(function()
+            local ap = Main.AbsolutePosition
+            local as = Main.AbsoluteSize
+            SearchBar.Position = UDim2.new(0, ap.X + 5, 0, ap.Y - 6)
+            SearchBar.Size     = UDim2.new(0, as.X - 10, 0, 40)
+        end)
+    end
+    UpdateSearchPos()
+
+    -- Track Main position while search is open (handles dragging)
+    _G._NSUISearchPosConn = Main:GetPropertyChangedSignal("AbsolutePosition"):Connect(UpdateSearchPos)
+
+    SearchBar.Visible       = true
+    SearchBar.Input.Visible = true
+
+    -- Animate in
+    TweenService:Create(SearchBar,          TweenInfo.new(0.4, Enum.EasingStyle.Quint), {BackgroundTransparency = 0}):Play()
     TweenService:Create(SearchBar.Icon,     TweenInfo.new(0.4, Enum.EasingStyle.Quint), {ImageTransparency = 0.4}):Play()
     TweenService:Create(SearchBar.UIStroke, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {Transparency = 0}):Play()
     TweenService:Create(SearchBar.Clear,    TweenInfo.new(0.4, Enum.EasingStyle.Quint), {ImageTransparency = 0.6}):Play()
@@ -1564,6 +1846,15 @@ SearchBar.Input:GetPropertyChangedSignal("Text"):Connect(function()
     ClearSearchPage()
 
     local resultOrder = 0
+    local seenKeys = {}  -- dedup: "tabName|sectionTitle|elementTitle"
+
+    local function SafeAddCard(elemTitle, tName, sectTitle, pageRef, frameRef)
+        local key = tName .. "|" .. sectTitle .. "|" .. elemTitle
+        if seenKeys[key] then return end
+        seenKeys[key] = true
+        resultOrder = resultOrder + 1
+        AddSearchCard(elemTitle, tName, sectTitle, pageRef, frameRef, resultOrder)
+    end
 
     for _, page in ipairs(Elements:GetChildren()) do
         if page:IsA("ScrollingFrame") and page.Name ~= "___SearchResults___" and page.Name ~= "Template" and page.Name ~= "Placeholder" then
@@ -1572,8 +1863,8 @@ SearchBar.Input:GetPropertyChangedSignal("Text"):Connect(function()
                 if Element:IsA("Frame") and Element.Name ~= "Placeholder" and Element.Name ~= "SectionSpacing" then
 
                     if Element:FindFirstChild("Holder") then
-                        -- This is a Section frame - get its real title
-                        local sectionTitle = Element.Name  -- now correctly set to SectionName
+                        -- Section frame – read its real title from the Title label
+                        local sectionTitle = Element.Name
                         pcall(function()
                             if Element:FindFirstChild("Title") and Element.Title.Text ~= "" then
                                 sectionTitle = Element.Title.Text
@@ -1590,20 +1881,16 @@ SearchBar.Input:GetPropertyChangedSignal("Text"):Connect(function()
                                     end
                                 end)
                                 local childMatches = string.find(string.upper(childTitle), InputText) ~= nil
+                                -- Show child if the section or the element itself matches
                                 if sectionMatches or childMatches then
-                                    resultOrder = resultOrder + 1
-                                    AddSearchCard(childTitle, tabName, sectionTitle, page, child, resultOrder)
+                                    SafeAddCard(childTitle, tabName, sectionTitle, page, child)
                                 end
                             end
                         end
+                        -- (section header is NOT added as a separate card to avoid duplicates)
 
-                        -- Also match the section header itself as a result
-                        if sectionMatches then
-                            resultOrder = resultOrder + 1
-                            AddSearchCard(sectionTitle, tabName, "", page, Element, resultOrder - 1)
-                        end
                     else
-                        -- Top-level element (no section)
+                        -- Top-level element (not inside a section)
                         local elemTitle = Element.Name
                         pcall(function()
                             if Element:FindFirstChild("Title") and Element.Title.Text ~= "" then
@@ -1611,8 +1898,7 @@ SearchBar.Input:GetPropertyChangedSignal("Text"):Connect(function()
                             end
                         end)
                         if string.find(string.upper(elemTitle), InputText) ~= nil then
-                            resultOrder = resultOrder + 1
-                            AddSearchCard(elemTitle, tabName, "", page, Element, resultOrder)
+                            SafeAddCard(elemTitle, tabName, "", page, Element)
                         end
                     end
 
