@@ -367,7 +367,7 @@ local function CreatePinnedWindow(tabName, sectionName, sectionFrameRef, tabPage
     Win.BackgroundColor3      = Color3.fromRGB(22, 22, 22)
     Win.BackgroundTransparency = 0.04
     Win.BorderSizePixel       = 0
-    Win.ZIndex                = 80
+    Win.ZIndex                = 300
     Win.Active                = true
     Win.Parent                = NSUI
 
@@ -394,7 +394,7 @@ local function CreatePinnedWindow(tabName, sectionName, sectionFrameRef, tabPage
     WinShadow.ImageTransparency = 0.5
     WinShadow.ScaleType     = Enum.ScaleType.Slice
     WinShadow.SliceCenter   = Rect.new(23, 23, 277, 277)
-    WinShadow.ZIndex        = 79
+    WinShadow.ZIndex        = 299
     WinShadow.Parent        = Win
 
     -- ── Titlebar ──────────────────────────────────────────────────────
@@ -404,7 +404,7 @@ local function CreatePinnedWindow(tabName, sectionName, sectionFrameRef, tabPage
     Titlebar.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
     Titlebar.BackgroundTransparency = 0
     Titlebar.BorderSizePixel  = 0
-    Titlebar.ZIndex           = 81
+    Titlebar.ZIndex           = 301
     Titlebar.Parent           = Win
 
     local TitlebarCorner = Instance.new("UICorner")
@@ -418,7 +418,7 @@ local function CreatePinnedWindow(tabName, sectionName, sectionFrameRef, tabPage
     TitlebarRepair.Position         = UDim2.new(0, 0, 1, 0)
     TitlebarRepair.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
     TitlebarRepair.BorderSizePixel  = 0
-    TitlebarRepair.ZIndex           = 82
+    TitlebarRepair.ZIndex           = 302
     TitlebarRepair.Parent           = Titlebar
 
     -- Pin icon in titlebar
@@ -429,7 +429,7 @@ local function CreatePinnedWindow(tabName, sectionName, sectionFrameRef, tabPage
     PinIcon.BackgroundTransparency = 1
     PinIcon.Image            = "rbxassetid://10734886004"
     PinIcon.ImageColor3      = Color3.fromRGB(160, 160, 160)
-    PinIcon.ZIndex           = 83
+    PinIcon.ZIndex           = 303
     PinIcon.Parent           = Titlebar
 
     -- Section title
@@ -443,7 +443,7 @@ local function CreatePinnedWindow(tabName, sectionName, sectionFrameRef, tabPage
     WinTitle.TextSize         = 12
     WinTitle.TextXAlignment   = Enum.TextXAlignment.Left
     WinTitle.TextTruncate     = Enum.TextTruncate.AtEnd
-    WinTitle.ZIndex           = 83
+    WinTitle.ZIndex           = 303
     WinTitle.Parent           = Titlebar
 
     -- Tab breadcrumb under title
@@ -457,7 +457,7 @@ local function CreatePinnedWindow(tabName, sectionName, sectionFrameRef, tabPage
     TabCrumb.TextSize         = 9
     TabCrumb.TextXAlignment   = Enum.TextXAlignment.Left
     TabCrumb.TextTruncate     = Enum.TextTruncate.AtEnd
-    TabCrumb.ZIndex           = 83
+    TabCrumb.ZIndex           = 303
     TabCrumb.Parent           = Titlebar
 
     -- Close/unpin button (X)
@@ -470,7 +470,7 @@ local function CreatePinnedWindow(tabName, sectionName, sectionFrameRef, tabPage
     CloseBtn.TextColor3       = Color3.fromRGB(130, 130, 130)
     CloseBtn.Font             = Enum.Font.GothamBold
     CloseBtn.TextSize         = 16
-    CloseBtn.ZIndex           = 84
+    CloseBtn.ZIndex           = 304
     CloseBtn.Parent           = Titlebar
 
     CloseBtn.MouseEnter:Connect(function()
@@ -485,7 +485,7 @@ local function CreatePinnedWindow(tabName, sectionName, sectionFrameRef, tabPage
     DragArea.Size              = UDim2.new(1, -28, 1, 0)
     DragArea.BackgroundTransparency = 1
     DragArea.Text              = ""
-    DragArea.ZIndex            = 83
+    DragArea.ZIndex            = 303
     DragArea.Parent            = Titlebar
 
     -- Drag logic (same pattern as main window)
@@ -1318,53 +1318,54 @@ function Unhide()
 end
 
 function CloseSearch()
-    Debounce = true
     -- Restore topbar contents
-    TweenService:Create(Topbar.Title,       TweenInfo.new(0.35, Enum.EasingStyle.Quint), {TextTransparency = 0}):Play()
+    TweenService:Create(Topbar.Title, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {TextTransparency = 0}):Play()
     for _, btn in ipairs(Topbar:GetChildren()) do
         if btn:IsA("ImageButton") then
             TweenService:Create(btn, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {ImageTransparency = 0.8}):Play()
         end
     end
-    -- Slide SearchBar out (shrink width, fade)
-    TweenService:Create(SearchBar, TweenInfo.new(0.35, Enum.EasingStyle.Quint), {Size = UDim2.new(0, 0, 0, 32), BackgroundTransparency = 1}):Play()
+    -- Shrink SearchBar back to zero so it disappears
+    TweenService:Create(SearchBar, TweenInfo.new(0.35, Enum.EasingStyle.Quint), {Size = UDim2.new(0, 0, 0, 39), BackgroundTransparency = 1}):Play()
     TweenService:Create(SearchBar.Icon,     TweenInfo.new(0.2, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
     TweenService:Create(SearchBar.Clear,    TweenInfo.new(0.2, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
     TweenService:Create(SearchBar.UIStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {Transparency = 1}):Play()
     TweenService:Create(SearchBar.Filter,   TweenInfo.new(0.2, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
     TweenService:Create(SearchBar.Input,    TweenInfo.new(0.15, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
-    delay(0.2, function() SearchBar.Input.Visible = false end)
-    task.wait(0.4)
+    task.wait(0.2)
+    SearchBar.Input.Visible = false
+    task.wait(0.2)
     SearchBar.Visible = false
     SearchBar.Input.Text = ""
-    Debounce = false
 end
 function OpenSearch()
     Debounce = true
-    -- Hide topbar contents so search bar can take over the row
-    TweenService:Create(Topbar.Title,       TweenInfo.new(0.25, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
+    -- Fade topbar title and non-search buttons
+    TweenService:Create(Topbar.Title, TweenInfo.new(0.25, Enum.EasingStyle.Quint), {TextTransparency = 1}):Play()
     for _, btn in ipairs(Topbar:GetChildren()) do
         if btn:IsA("ImageButton") and btn.Name ~= "Search" then
             TweenService:Create(btn, TweenInfo.new(0.25, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
         end
     end
-    -- Move and parent SearchBar into Topbar so it sits inline
-    SearchBar.Parent = Topbar
-    SearchBar.AnchorPoint = Vector2.new(0.5, 0.5)
-    SearchBar.Position    = UDim2.new(0.5, 0, 0.5, 0)
-    SearchBar.Size        = UDim2.new(0, 0, 0, 32)
+    -- Keep SearchBar in Main but reposition it to sit on top of the Topbar area
+    -- Topbar is at the top of Main (y=0), height 45. We cover it with ZIndex 200.
+    SearchBar.Parent            = Main  -- always stays in Main
+    SearchBar.AnchorPoint       = Vector2.new(0, 0)
+    SearchBar.Position          = UDim2.new(0, 5, 0, 3)
+    SearchBar.Size              = UDim2.new(0, 0, 0, 39)
     SearchBar.BackgroundTransparency = 0
-    SearchBar.Visible     = true
-    SearchBar.Input.Visible = true
-    -- Expand into topbar
-    TweenService:Create(SearchBar, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {Size = UDim2.new(1, -80, 0, 32)}):Play()
+    SearchBar.ZIndex            = 200   -- renders above all topbar content
+    SearchBar.Visible           = true
+    SearchBar.Input.Visible     = true
+    -- Slide open across the topbar width (leave ~46px on right for the Search icon)
+    TweenService:Create(SearchBar, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {Size = UDim2.new(1, -50, 0, 39)}):Play()
     TweenService:Create(SearchBar.Icon,     TweenInfo.new(0.4, Enum.EasingStyle.Quint), {ImageTransparency = 0.4}):Play()
     TweenService:Create(SearchBar.UIStroke, TweenInfo.new(0.4, Enum.EasingStyle.Quint), {Transparency = 0}):Play()
     TweenService:Create(SearchBar.Clear,    TweenInfo.new(0.4, Enum.EasingStyle.Quint), {ImageTransparency = 0.6}):Play()
     TweenService:Create(SearchBar.Filter,   TweenInfo.new(0.4, Enum.EasingStyle.Quint), {ImageTransparency = 0.6}):Play()
     TweenService:Create(SearchBar.Input,    TweenInfo.new(0.4, Enum.EasingStyle.Quint), {TextTransparency = 0}):Play()
     task.wait(0.45)
-    SearchBar.Input:CaptureFocus()
+    pcall(function() SearchBar.Input:CaptureFocus() end)
     Debounce = false
 end
 -- ── NSUI Global Search ───────────────────────────────────────────────────────
@@ -1629,10 +1630,12 @@ SearchBar.Input:GetPropertyChangedSignal("Text"):Connect(function()
 end)
 -- ─────────────────────────────────────────────────────────────────────────────
 SearchBar.Clear.MouseButton1Down:Connect(function()
+    -- Clear text first (triggers the Input Changed handler which restores tab)
     SearchBar.Input.Text = ""
+    -- Then close the bar
     if not SearchHided then
         SearchHided = true
-        spawn(CloseSearch)
+        task.spawn(CloseSearch)
     end
 end)
 
