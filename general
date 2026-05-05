@@ -217,137 +217,120 @@ local function SavePinnedFile()
     end)
 end
 
--- Build a row inside a pinned window for one element from the section holder
-local function BuildPinnedRow(element, winContent, zBase)
-    if not element:IsA("Frame") then return end
-    if element.Name == "Placeholder" or element.Name == "SectionSpacing" then return end
+local function SetDescendantsZIndex(parent, z)
+    for _, d in ipairs(parent:GetDescendants()) do
+        pcall(function() d.ZIndex = z end)
+    end
+    pcall(function() parent.ZIndex = z end)
+end
 
-    local Row = Instance.new("Frame")
-    Row.Name              = element.Name
-    Row.Size              = UDim2.new(1, 0, 0, 36)
-    Row.BackgroundColor3  = Color3.fromRGB(32, 32, 32)
-    Row.BackgroundTransparency = 0
-    Row.BorderSizePixel   = 0
-    Row.ZIndex            = zBase + 1
-    Row.ClipsDescendants  = false   -- must be false so high-ZIndex Btn is not clipped
-    Row.Parent            = winContent
+local function BuildPinnedRow(originalElem, winContent, zBase)
+    if not originalElem:IsA("Frame") then return end
+    if originalElem.Name == "Placeholder" or originalElem.Name == "SectionSpacing" then return end
 
-    local rc = Instance.new("UICorner")
-    rc.CornerRadius = UDim.new(0, 5)
-    rc.Parent = Row
+    local cloned = originalElem:Clone()
+    cloned.LayoutOrder = originalElem.LayoutOrder
+    cloned.Visible = true
+    SetDescendantsZIndex(cloned, zBase + 10)
+    cloned.ZIndex = zBase + 1
+    cloned.Parent = winContent
 
-    local rs = Instance.new("UIStroke")
-    rs.Color       = Color3.fromRGB(55, 55, 55)
-    rs.Thickness   = 1
-    rs.Parent      = Row
-
-    -- Element label (use Title.Text if available, else Name)
-    local labelText = element.Name
-    pcall(function()
-        if element:FindFirstChild("Title") and element.Title.Text ~= "" then
-            labelText = element.Title.Text
+    local function resolveOriginal(cloneDesc)
+        local path = {}
+        local cur = cloneDesc
+        while cur and cur ~= cloned do
+            table.insert(path, 1, cur.Name)
+            cur = cur.Parent
         end
-    end)
-
-    local Lbl = Instance.new("TextLabel")
-    Lbl.Size               = UDim2.new(1, -70, 1, 0)
-    Lbl.Position           = UDim2.new(0, 10, 0, 0)
-    Lbl.BackgroundTransparency = 1
-    Lbl.Text               = labelText
-    Lbl.TextColor3         = Color3.fromRGB(210, 210, 210)
-    Lbl.Font               = Enum.Font.Gotham
-    Lbl.TextSize           = 12
-    Lbl.TextXAlignment     = Enum.TextXAlignment.Left
-    Lbl.TextTruncate       = Enum.TextTruncate.AtEnd
-    Lbl.ZIndex             = zBase + 2
-    Lbl.Parent             = Row
-
-    -- Right-side indicator: try to mirror ElementIndicator / toggle state
-    local RightLbl = Instance.new("TextLabel")
-    RightLbl.Size               = UDim2.new(0, 58, 1, 0)
-    RightLbl.AnchorPoint        = Vector2.new(1, 0)
-    RightLbl.Position           = UDim2.new(1, -4, 0, 0)
-    RightLbl.BackgroundTransparency = 1
-    RightLbl.Text               = ""
-    RightLbl.TextColor3         = Color3.fromRGB(130, 130, 130)
-    RightLbl.Font               = Enum.Font.Gotham
-    RightLbl.TextSize           = 11
-    RightLbl.TextXAlignment     = Enum.TextXAlignment.Right
-    RightLbl.TextTruncate       = Enum.TextTruncate.AtEnd
-    RightLbl.ZIndex             = zBase + 2
-    RightLbl.Parent             = Row
-
-    -- Mirror ElementIndicator text (button label / keybind etc)
-    pcall(function()
-        if element:FindFirstChild("ElementIndicator") then
-            RightLbl.Text = element.ElementIndicator.Text
-            element.ElementIndicator:GetPropertyChangedSignal("Text"):Connect(function()
-                RightLbl.Text = element.ElementIndicator.Text
-            end)
+        local orig = originalElem
+        for _, name in ipairs(path) do
+            orig = orig:FindFirstChild(name)
+            if not orig then return nil end
         end
-    end)
+        return orig
+    end
 
-    -- Mirror toggle visual (small circle indicator)
-    local ToggleDot = nil
-    pcall(function()
-        if element:FindFirstChild("Toggle") and element.Toggle:FindFirstChild("Indicator") then
-            ToggleDot = Instance.new("Frame")
-            ToggleDot.Size             = UDim2.new(0, 10, 0, 10)
-            ToggleDot.AnchorPoint      = Vector2.new(1, 0.5)
-            ToggleDot.Position         = UDim2.new(1, -8, 0.5, 0)
-            ToggleDot.BackgroundColor3 = element.Toggle.Indicator.BackgroundColor3
-            ToggleDot.BorderSizePixel  = 0
-            ToggleDot.ZIndex           = zBase + 3
-            ToggleDot.Parent           = Row
-
-            local dc = Instance.new("UICorner")
-            dc.CornerRadius = UDim.new(1, 0)
-            dc.Parent = ToggleDot
-
-            element.Toggle.Indicator:GetPropertyChangedSignal("BackgroundColor3"):Connect(function()
-                ToggleDot.BackgroundColor3 = element.Toggle.Indicator.BackgroundColor3
-            end)
-        end
-    end)
-
-    -- Click proxy → fire original Interact
-    -- ZIndex must be well above Win (300) and Titlebar (301) so this button wins hit-testing
-    local Btn = Instance.new("TextButton")
-    Btn.Size               = UDim2.new(1, 0, 1, 0)
-    Btn.BackgroundTransparency = 1
-    Btn.Text               = ""
-    Btn.ZIndex             = zBase + 20
-    Btn.Parent             = Row
-
-    Btn.MouseEnter:Connect(function()
-        TweenService:Create(Row, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {BackgroundColor3 = Color3.fromRGB(44, 44, 44)}):Play()
-    end)
-    Btn.MouseLeave:Connect(function()
-        TweenService:Create(Row, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {BackgroundColor3 = Color3.fromRGB(32, 32, 32)}):Play()
-    end)
-    Btn.MouseButton1Click:Connect(function()
-        pcall(function()
-            if element:FindFirstChild("Interact") then
-                element.Interact:Activate()
+    for _, cloneBtn in ipairs(cloned:GetDescendants()) do
+        if cloneBtn:IsA("TextButton") or cloneBtn:IsA("ImageButton") then
+            local origBtn = resolveOriginal(cloneBtn)
+            if origBtn then
+                cloneBtn.MouseButton1Click:Connect(function()
+                    pcall(function() origBtn:Activate() end)
+                end)
             end
-        end)
-        -- Brief press flash (darker → restore)
-        TweenService:Create(Row, TweenInfo.new(0.1, Enum.EasingStyle.Quint), {BackgroundColor3 = Color3.fromRGB(24, 24, 24)}):Play()
-        task.wait(0.12)
-        TweenService:Create(Row, TweenInfo.new(0.25, Enum.EasingStyle.Quint), {BackgroundColor3 = Color3.fromRGB(32, 32, 32)}):Play()
+        end
+    end
+
+    pcall(function()
+        if originalElem:FindFirstChild("Toggle") and originalElem.Toggle:FindFirstChild("Indicator") then
+            local origInd = originalElem.Toggle.Indicator
+            local cloneInd = cloned.Toggle.Indicator
+            cloneInd.BackgroundColor3 = origInd.BackgroundColor3
+            origInd:GetPropertyChangedSignal("BackgroundColor3"):Connect(function()
+                cloneInd.BackgroundColor3 = origInd.BackgroundColor3
+            end)
+            origInd:GetPropertyChangedSignal("Position"):Connect(function()
+                cloneInd.Position = origInd.Position
+            end)
+        end
+    end)
+
+    pcall(function()
+        if originalElem:FindFirstChild("ElementIndicator") then
+            local origInd = originalElem.ElementIndicator
+            local cloneInd = cloned.ElementIndicator
+            cloneInd.Text = origInd.Text
+            origInd:GetPropertyChangedSignal("Text"):Connect(function()
+                cloneInd.Text = origInd.Text
+            end)
+        end
+    end)
+
+    pcall(function()
+        if originalElem:FindFirstChild("Slider") and originalElem.Slider:FindFirstChild("Fill") then
+            local origFill = originalElem.Slider.Fill
+            local cloneFill = cloned.Slider.Fill
+            cloneFill.Size = origFill.Size
+            origFill:GetPropertyChangedSignal("Size"):Connect(function()
+                cloneFill.Size = origFill.Size
+            end)
+        end
     end)
 end
 
--- Create a draggable floating window for a pinned section
+local function FadeWindow(win, toTransparency, callback)
+    local t = TweenInfo.new(0.3, Enum.EasingStyle.Quint)
+    local shadow = win:FindFirstChild("Shadow")
+    if shadow then
+        TweenService:Create(shadow, t, {ImageTransparency = toTransparency == 0 and 0.5 or 1}):Play()
+    end
+    for _, d in ipairs(win:GetDescendants()) do
+        pcall(function()
+            if d:IsA("Frame") then
+                TweenService:Create(d, t, {BackgroundTransparency = toTransparency}):Play()
+            elseif d:IsA("TextLabel") or d:IsA("TextButton") then
+                TweenService:Create(d, t, {TextTransparency = toTransparency}):Play()
+                if d.BackgroundTransparency < 1 then
+                    TweenService:Create(d, t, {BackgroundTransparency = toTransparency}):Play()
+                end
+            elseif d:IsA("ImageLabel") or d:IsA("ImageButton") then
+                TweenService:Create(d, t, {ImageTransparency = toTransparency}):Play()
+            end
+        end)
+    end
+    TweenService:Create(win, t, {BackgroundTransparency = toTransparency}):Play()
+    if callback then
+        task.delay(0.33, callback)
+    end
+end
+
 local function CreatePinnedWindow(tabName, sectionName, sectionFrameRef, tabPageRef, startX, startY)
     local key = tabName .. "|" .. sectionName
-    -- Deduplicate
     if ActivePinnedWindows[key] and ActivePinnedWindows[key].Parent then return end
 
-    local WIN_W = 280
+    local WIN_W = 300
     local WIN_TITLE_H = 36
 
-    -- Count holder children to size window height
     local childCount = 0
     if sectionFrameRef and sectionFrameRef:FindFirstChild("Holder") then
         for _, c in ipairs(sectionFrameRef.Holder:GetChildren()) do
@@ -356,123 +339,120 @@ local function CreatePinnedWindow(tabName, sectionName, sectionFrameRef, tabPage
             end
         end
     end
-    local WIN_H = WIN_TITLE_H + math.clamp(childCount * 38 + 10, 38, 420)
-
+    local WIN_H = WIN_TITLE_H + math.clamp(childCount * 40 + 10, 40, 440)
     local posX = startX or 30
     local posY = startY or 120
 
     local Win = Instance.new("Frame")
-    Win.Name                  = "NSUIPinWin_" .. key
-    Win.Size                  = UDim2.new(0, WIN_W, 0, WIN_H)
-    Win.Position              = UDim2.new(0, posX, 0, posY)
-    Win.BackgroundColor3      = Color3.fromRGB(22, 22, 22)
-    Win.BackgroundTransparency = 0.04
-    Win.BorderSizePixel       = 0
-    Win.ZIndex                = 300
-    Win.Active                = true
-    Win.Parent                = NSUI
-
-    Win:SetAttribute("_PinTab",     tabName)
+    Win.Name = "NSUIPinWin_" .. key
+    Win.Size = UDim2.new(0, WIN_W, 0, WIN_H)
+    Win.Position = UDim2.new(0, posX, 0, posY)
+    Win.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
+    Win.BackgroundTransparency = 1
+    Win.BorderSizePixel = 0
+    Win.ZIndex = 300
+    Win.Active = true
+    Win:SetAttribute("_PinTab", tabName)
     Win:SetAttribute("_PinSection", sectionName)
+    Win.Parent = NSUI
 
     local WinCorner = Instance.new("UICorner")
     WinCorner.CornerRadius = UDim.new(0, 8)
     WinCorner.Parent = Win
 
     local WinStroke = Instance.new("UIStroke")
-    WinStroke.Color        = Color3.fromRGB(58, 58, 58)
-    WinStroke.Thickness    = 1
-    WinStroke.Parent       = Win
+    WinStroke.Color = Color3.fromRGB(58, 58, 58)
+    WinStroke.Thickness = 1
+    WinStroke.Parent = Win
 
     local WinShadow = Instance.new("ImageLabel")
-    WinShadow.Name          = "Shadow"
-    WinShadow.AnchorPoint   = Vector2.new(0.5, 0.5)
-    WinShadow.Position      = UDim2.new(0.5, 0, 0.5, 4)
-    WinShadow.Size          = UDim2.new(1, 24, 1, 24)
+    WinShadow.Name = "Shadow"
+    WinShadow.AnchorPoint = Vector2.new(0.5, 0.5)
+    WinShadow.Position = UDim2.new(0.5, 0, 0.5, 4)
+    WinShadow.Size = UDim2.new(1, 24, 1, 24)
     WinShadow.BackgroundTransparency = 1
-    WinShadow.Image         = "rbxassetid://5554236805"
-    WinShadow.ImageColor3   = Color3.fromRGB(0, 0, 0)
-    WinShadow.ImageTransparency = 0.5
-    WinShadow.ScaleType     = Enum.ScaleType.Slice
-    WinShadow.SliceCenter   = Rect.new(23, 23, 277, 277)
-    WinShadow.ZIndex        = 299
-    WinShadow.Parent        = Win
+    WinShadow.Image = "rbxassetid://5554236805"
+    WinShadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
+    WinShadow.ImageTransparency = 1
+    WinShadow.ScaleType = Enum.ScaleType.Slice
+    WinShadow.SliceCenter = Rect.new(23, 23, 277, 277)
+    WinShadow.ZIndex = 299
+    WinShadow.Parent = Win
 
-    -- ── Titlebar ──────────────────────────────────────────────────────
     local Titlebar = Instance.new("Frame")
-    Titlebar.Name             = "Titlebar"
-    Titlebar.Size             = UDim2.new(1, 0, 0, WIN_TITLE_H)
+    Titlebar.Name = "Titlebar"
+    Titlebar.Size = UDim2.new(1, 0, 0, WIN_TITLE_H)
     Titlebar.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
-    Titlebar.BackgroundTransparency = 0
-    Titlebar.BorderSizePixel  = 0
-    Titlebar.ZIndex           = 301
-    Titlebar.Parent           = Win
+    Titlebar.BackgroundTransparency = 1
+    Titlebar.BorderSizePixel = 0
+    Titlebar.ZIndex = 301
+    Titlebar.Parent = Win
 
     local TitlebarCorner = Instance.new("UICorner")
     TitlebarCorner.CornerRadius = UDim.new(0, 8)
     TitlebarCorner.Parent = Titlebar
 
-    -- Cover bottom corners of titlebar so it merges with content
     local TitlebarRepair = Instance.new("Frame")
-    TitlebarRepair.Size             = UDim2.new(1, 0, 0, 8)
-    TitlebarRepair.AnchorPoint      = Vector2.new(0, 1)
-    TitlebarRepair.Position         = UDim2.new(0, 0, 1, 0)
+    TitlebarRepair.Size = UDim2.new(1, 0, 0, 8)
+    TitlebarRepair.AnchorPoint = Vector2.new(0, 1)
+    TitlebarRepair.Position = UDim2.new(0, 0, 1, 0)
     TitlebarRepair.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
-    TitlebarRepair.BorderSizePixel  = 0
-    TitlebarRepair.ZIndex           = 302
-    TitlebarRepair.Parent           = Titlebar
+    TitlebarRepair.BackgroundTransparency = 1
+    TitlebarRepair.BorderSizePixel = 0
+    TitlebarRepair.ZIndex = 302
+    TitlebarRepair.Parent = Titlebar
 
-    -- Pin icon in titlebar
     local PinIcon = Instance.new("ImageLabel")
-    PinIcon.Size             = UDim2.new(0, 14, 0, 14)
-    PinIcon.AnchorPoint      = Vector2.new(0, 0.5)
-    PinIcon.Position         = UDim2.new(0, 8, 0.5, 0)
+    PinIcon.Size = UDim2.new(0, 14, 0, 14)
+    PinIcon.AnchorPoint = Vector2.new(0, 0.5)
+    PinIcon.Position = UDim2.new(0, 8, 0.5, 0)
     PinIcon.BackgroundTransparency = 1
-    PinIcon.Image            = "rbxassetid://10734886004"
-    PinIcon.ImageColor3      = Color3.fromRGB(160, 160, 160)
-    PinIcon.ZIndex           = 303
-    PinIcon.Parent           = Titlebar
+    PinIcon.Image = "rbxassetid://10734886004"
+    PinIcon.ImageColor3 = Color3.fromRGB(160, 160, 160)
+    PinIcon.ImageTransparency = 1
+    PinIcon.ZIndex = 303
+    PinIcon.Parent = Titlebar
 
-    -- Section title
     local WinTitle = Instance.new("TextLabel")
-    WinTitle.Size             = UDim2.new(1, -56, 1, 0)
-    WinTitle.Position         = UDim2.new(0, 26, 0, 0)
+    WinTitle.Size = UDim2.new(1, -56, 1, 0)
+    WinTitle.Position = UDim2.new(0, 26, 0, 0)
     WinTitle.BackgroundTransparency = 1
-    WinTitle.Text             = sectionName
-    WinTitle.TextColor3       = Color3.fromRGB(210, 210, 210)
-    WinTitle.Font             = Enum.Font.GothamBold
-    WinTitle.TextSize         = 12
-    WinTitle.TextXAlignment   = Enum.TextXAlignment.Left
-    WinTitle.TextTruncate     = Enum.TextTruncate.AtEnd
-    WinTitle.ZIndex           = 303
-    WinTitle.Parent           = Titlebar
+    WinTitle.Text = sectionName
+    WinTitle.TextColor3 = Color3.fromRGB(210, 210, 210)
+    WinTitle.TextTransparency = 1
+    WinTitle.Font = Enum.Font.GothamBold
+    WinTitle.TextSize = 12
+    WinTitle.TextXAlignment = Enum.TextXAlignment.Left
+    WinTitle.TextTruncate = Enum.TextTruncate.AtEnd
+    WinTitle.ZIndex = 303
+    WinTitle.Parent = Titlebar
 
-    -- Tab breadcrumb under title
     local TabCrumb = Instance.new("TextLabel")
-    TabCrumb.Size             = UDim2.new(1, -56, 0, 10)
-    TabCrumb.Position         = UDim2.new(0, 26, 0.5, 2)
+    TabCrumb.Size = UDim2.new(1, -56, 0, 10)
+    TabCrumb.Position = UDim2.new(0, 26, 0.5, 2)
     TabCrumb.BackgroundTransparency = 1
-    TabCrumb.Text             = tabName
-    TabCrumb.TextColor3       = Color3.fromRGB(100, 100, 100)
-    TabCrumb.Font             = Enum.Font.Gotham
-    TabCrumb.TextSize         = 9
-    TabCrumb.TextXAlignment   = Enum.TextXAlignment.Left
-    TabCrumb.TextTruncate     = Enum.TextTruncate.AtEnd
-    TabCrumb.ZIndex           = 303
-    TabCrumb.Parent           = Titlebar
+    TabCrumb.Text = tabName
+    TabCrumb.TextColor3 = Color3.fromRGB(100, 100, 100)
+    TabCrumb.TextTransparency = 1
+    TabCrumb.Font = Enum.Font.Gotham
+    TabCrumb.TextSize = 9
+    TabCrumb.TextXAlignment = Enum.TextXAlignment.Left
+    TabCrumb.TextTruncate = Enum.TextTruncate.AtEnd
+    TabCrumb.ZIndex = 303
+    TabCrumb.Parent = Titlebar
 
-    -- Close/unpin button (X)
     local CloseBtn = Instance.new("TextButton")
-    CloseBtn.Size             = UDim2.new(0, 22, 0, 22)
-    CloseBtn.AnchorPoint      = Vector2.new(1, 0.5)
-    CloseBtn.Position         = UDim2.new(1, -5, 0.5, 0)
+    CloseBtn.Size = UDim2.new(0, 22, 0, 22)
+    CloseBtn.AnchorPoint = Vector2.new(1, 0.5)
+    CloseBtn.Position = UDim2.new(1, -5, 0.5, 0)
     CloseBtn.BackgroundTransparency = 1
-    CloseBtn.Text             = "×"
-    CloseBtn.TextColor3       = Color3.fromRGB(130, 130, 130)
-    CloseBtn.Font             = Enum.Font.GothamBold
-    CloseBtn.TextSize         = 16
-    CloseBtn.ZIndex           = 304
-    CloseBtn.Parent           = Titlebar
+    CloseBtn.Text = "x"
+    CloseBtn.TextColor3 = Color3.fromRGB(130, 130, 130)
+    CloseBtn.TextTransparency = 1
+    CloseBtn.Font = Enum.Font.GothamBold
+    CloseBtn.TextSize = 16
+    CloseBtn.ZIndex = 310
+    CloseBtn.Parent = Titlebar
 
     CloseBtn.MouseEnter:Connect(function()
         TweenService:Create(CloseBtn, TweenInfo.new(0.2), {TextColor3 = Color3.fromRGB(200, 200, 200)}):Play()
@@ -481,103 +461,83 @@ local function CreatePinnedWindow(tabName, sectionName, sectionFrameRef, tabPage
         TweenService:Create(CloseBtn, TweenInfo.new(0.2), {TextColor3 = Color3.fromRGB(130, 130, 130)}):Play()
     end)
 
-    -- Drag handle on titlebar
     local DragArea = Instance.new("TextButton")
-    DragArea.Size              = UDim2.new(1, -28, 1, 0)
+    DragArea.Size = UDim2.new(1, -28, 1, 0)
     DragArea.BackgroundTransparency = 1
-    DragArea.Text              = ""
-    DragArea.ZIndex            = 303
-    DragArea.Parent            = Titlebar
+    DragArea.Text = ""
+    DragArea.ZIndex = 303
+    DragArea.Parent = Titlebar
 
-    -- Drag logic (same pattern as main window)
     do
         local dragging, dragStart, startPos = false, nil, nil
         DragArea.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                dragging  = true
+                dragging = true
                 dragStart = input.Position
-                startPos  = Win.Position
+                startPos = Win.Position
             end
         end)
         UserInputService.InputChanged:Connect(function(input)
             if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
                 local delta = input.Position - dragStart
-                Win.Position = UDim2.new(
-                    startPos.X.Scale, startPos.X.Offset + delta.X,
-                    startPos.Y.Scale, startPos.Y.Offset + delta.Y
-                )
+                Win.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
             end
         end)
         UserInputService.InputEnded:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                if dragging then
-                    dragging = false
-                    SavePinnedFile()
-                end
+            if input.UserInputType == Enum.UserInputType.MouseButton1 and dragging then
+                dragging = false
+                SavePinnedFile()
             end
         end)
     end
 
-    -- ── Content scroll area ───────────────────────────────────────────
     local Content = Instance.new("ScrollingFrame")
-    Content.Name                    = "PinWinContent"
-    Content.Size                    = UDim2.new(1, -6, 1, -(WIN_TITLE_H + 4))
-    Content.Position                = UDim2.new(0, 3, 0, WIN_TITLE_H + 2)
-    Content.BackgroundTransparency  = 1
-    Content.BorderSizePixel         = 0
-    Content.ScrollBarThickness      = 2
-    Content.ScrollBarImageColor3    = Color3.fromRGB(70, 70, 70)
-    Content.CanvasSize              = UDim2.new(0, 0, 0, 0)
-    Content.AutomaticCanvasSize     = Enum.AutomaticSize.Y
-    Content.ZIndex                  = 301
-    Content.Parent                  = Win
+    Content.Name = "PinWinContent"
+    Content.Size = UDim2.new(1, -6, 1, -(WIN_TITLE_H + 4))
+    Content.Position = UDim2.new(0, 3, 0, WIN_TITLE_H + 2)
+    Content.BackgroundTransparency = 1
+    Content.BorderSizePixel = 0
+    Content.ScrollBarThickness = 2
+    Content.ScrollBarImageColor3 = Color3.fromRGB(70, 70, 70)
+    Content.CanvasSize = UDim2.new(0, 0, 0, 0)
+    Content.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    Content.ZIndex = 301
+    Content.Parent = Win
 
     local ContentLayout = Instance.new("UIListLayout")
-    ContentLayout.Padding       = UDim.new(0, 3)
+    ContentLayout.Padding = UDim.new(0, 3)
     ContentLayout.FillDirection = Enum.FillDirection.Vertical
-    ContentLayout.SortOrder     = Enum.SortOrder.LayoutOrder
-    ContentLayout.Parent        = Content
+    ContentLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    ContentLayout.Parent = Content
 
-    -- Populate rows from section holder
     if sectionFrameRef and sectionFrameRef:FindFirstChild("Holder") then
         for _, elem in ipairs(sectionFrameRef.Holder:GetChildren()) do
             BuildPinnedRow(elem, Content, 301)
         end
-        -- Watch for new elements added to holder later
         sectionFrameRef.Holder.ChildAdded:Connect(function(child)
             task.wait()
             BuildPinnedRow(child, Content, 301)
         end)
     end
 
-    -- Close / unpin with fade-out
-    CloseBtn.MouseButton1Click:Connect(function()
-        -- Reset pin button on the original section
-        pcall(function()
-            if sectionFrameRef and sectionFrameRef:FindFirstChild("NSUIPinButton") then
-                sectionFrameRef.NSUIPinButton.ImageColor3 = Color3.fromRGB(90, 90, 90)
-                sectionFrameRef.NSUIPinButton.ImageTransparency = 0.2
-                sectionFrameRef.NSUIPinButton:SetAttribute("_Pinned", false)
-            end
-        end)
+    local function DoClose()
         ActivePinnedWindows[key] = nil
         SavePinnedFile()
-        -- Fade out then destroy
-        TweenService:Create(Win, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {BackgroundTransparency = 1}):Play()
-        TweenService:Create(WinShadow, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {ImageTransparency = 1}):Play()
-        TweenService:Create(Titlebar, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {BackgroundTransparency = 1}):Play()
-        for _, c in ipairs(Win:GetDescendants()) do
-            pcall(function()
-                if c:IsA("TextLabel") or c:IsA("TextButton") or c:IsA("ImageLabel") or c:IsA("ImageButton") then
-                    TweenService:Create(c, TweenInfo.new(0.25, Enum.EasingStyle.Quint), {TextTransparency = 1, ImageTransparency = 1}):Play()
-                end
-            end)
-        end
-        task.wait(0.35)
-        Win:Destroy()
-    end)
+        pcall(function()
+            if sectionFrameRef and sectionFrameRef:FindFirstChild("NSUIPinButton") then
+                local pb = sectionFrameRef.NSUIPinButton
+                pb:SetAttribute("_Pinned", false)
+                TweenService:Create(pb, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {ImageColor3 = Color3.fromRGB(90, 90, 90), ImageTransparency = 0.2}):Play()
+            end
+        end)
+        FadeWindow(Win, 1, function() Win:Destroy() end)
+    end
+
+    CloseBtn.MouseButton1Click:Connect(DoClose)
+    Win.DoClose = DoClose
 
     ActivePinnedWindows[key] = Win
+    FadeWindow(Win, 0)
     SavePinnedFile()
 end
 
@@ -2605,16 +2565,20 @@ end
                 local nowPinned = not PinBtn:GetAttribute("_Pinned")
                 PinBtn:SetAttribute("_Pinned", nowPinned)
                 if nowPinned then
-                    -- Darker/brighter tint = "active" (no blue, just brighter white-ish)
                     TweenService:Create(PinBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {ImageColor3 = Color3.fromRGB(210, 210, 210), ImageTransparency = 0}):Play()
                     CreatePinnedWindow(Name, SectionName, Section, TabPage)
                 else
                     TweenService:Create(PinBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {ImageColor3 = Color3.fromRGB(90, 90, 90), ImageTransparency = 0.2}):Play()
                     local key = Name .. "|" .. SectionName
-                    if ActivePinnedWindows[key] then
-                        ActivePinnedWindows[key]:Destroy()
-                        ActivePinnedWindows[key] = nil
-                        SavePinnedFile()
+                    local win = ActivePinnedWindows[key]
+                    if win and win.Parent then
+                        if win.DoClose then
+                            win.DoClose()
+                        else
+                            ActivePinnedWindows[key] = nil
+                            win:Destroy()
+                            SavePinnedFile()
+                        end
                     end
                 end
             end)
